@@ -177,5 +177,6 @@ async def stop(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("Bot không ở trong phòng thoại.", ephemeral=True)
 
-TOKEN = "MTU0MzI3MzM5NzI5MzY4NjkxNQ.GIS9EK.XiFlsW7XBJ-jZBiUOrUWUhvX-CcxVavTStDl7E"
+import os
+TOKEN = os.environ.get("MTU0MzI3MzM5NzI5MzY4NjkxNQ.GIS9EK.XiFlsW7XBJ-jZBiUOrUWUhvX-CcxVavTStDl7E")
 bot.run(TOKEN)
