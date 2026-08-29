@@ -179,5 +179,5 @@ async def stop(interaction: discord.Interaction):
 
 import os
 
-TOKEN = os.environ.get("MTU0MzI3MzM5NzI5MzY4NjkxNQ.GkWagf.dUcJh0vDlWBlEHQYs06ZUj_cV7DH0O5zPKlnrU")
+TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
