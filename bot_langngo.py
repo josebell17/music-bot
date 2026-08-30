@@ -62,13 +62,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
         return cls(audio_source, data=data, volume=volume)
 
-# Autocomplete chuẩn chỉnh giống Google Chrome / SoundCloud: Trả về danh sách bài hát thực tế để bấm chọn
+# Autocomplete tìm kiếm real-time mượt mà
 async def search_soundcloud(current: str):
     if not current or len(current.strip()) < 2:
         return [discord.app_commands.Choice(name="🔥 Gợi ý: Gõ tên bài hát hoặc nghệ sĩ...", value="Lofi Chill")]
     try:
         loop = asyncio.get_event_loop()
-        # Truy vấn trực tiếp scsearch để lấy danh sách bài hát thật khớp với từ khóa
         info = await asyncio.wait_for(
             loop.run_in_executor(
                 None, 
@@ -84,7 +83,6 @@ async def search_soundcloud(current: str):
             if title and webpage_url:
                 if len(title) > 100:
                     title = title[:97] + "..."
-                # Hiển thị tên bài hát rõ ràng trong menu thả xuống
                 results.append(discord.app_commands.Choice(name=title, value=webpage_url))
         
         if not results:
@@ -108,8 +106,13 @@ async def play_next(ctx):
         if ctx.voice_client and ctx.voice_client.is_connected():
             ctx.voice_client.play(player, after=after_playing)
             try:
-                embed = discord.Embed(title="🎧 Đang phát bài tiếp theo", description=f"**{player.title}**", color=discord.Color.dark_embed())
-                asyncio.run_coroutine_threadsafe(ctx.send(embed=embed), bot.loop)
+                embed = discord.Embed(
+                    title="🎵 Music langngo - Đang Phát", 
+                    description=f"**{player.title}**", 
+                    color=discord.Color.from_rgb(0, 168, 150)
+                )
+                embed.set_footer(text="⚡ Hệ thống âm thanh 24/7 độc quyền")
+                asyncio.run_coroutine_threadsafe(ctx.send(embed=embed, view=MusicControlView(ctx)), bot.loop)
             except Exception:
                 pass
     else:
@@ -119,6 +122,7 @@ async def play_next(ctx):
             if not ctx.voice_client.is_playing() and len(queues[guild_id]) == 0:
                 await ctx.voice_client.disconnect()
 
+# Giao diện nút bấm chuẩn mẫu
 class MusicControlView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=None)
@@ -243,7 +247,7 @@ async def play(interaction: discord.Interaction, search: str):
             await interaction.followup.send(embed=embed)
         else:
             ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-            embed = discord.Embed(title="🎧 Music langngo - Đang Phát", description=f"**{player.title}**", color=discord.Color.teal())
+            embed = discord.Embed(title="🎵 Music langngo - Đang Phát", description=f"**{player.title}**", color=discord.Color.from_rgb(0, 168, 150))
             embed.set_footer(text=f"Yêu cầu bởi {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
             await interaction.followup.send(embed=embed, view=MusicControlView(ctx))
             
@@ -331,22 +335,58 @@ async def sleep(interaction: discord.Interaction, minutes: int):
     sleep_tasks[guild_id] = bot.loop.create_task(timer())
     await interaction.response.send_message(f"⏰ Đã hẹn giờ tắt nhạc sau **{minutes} phút**.")
 
-@bot.tree.command(name="help", description="🚀 Hiển thị bảng điều khiển & hướng dẫn hệ thống Music langngo")
+@bot.tree.command(name="help", description="🚀 Hiển thị bảng điều khiển & hướng dẫn chi tiết hệ thống Music langngo")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="🔥 Music langngo - Hệ Thống Âm Nhạc Cực Chiến ⚡",
-        description="Bot âm nhạc chất lượng cao chạy nền tảng 24/7 dành riêng cho dân chơi.",
+        title="🔥 HỆ THỐNG ÂM NHẠC MUSIC LANGNGO - HƯỚNG DẪN CHI TIẾT ⚡",
+        description="Toàn bộ danh sách lệnh, cú pháp và cách sử dụng chi tiết để bạn làm chủ bot nhạc 24/7.",
         color=discord.Color.dark_red()
     )
-    embed.add_field(name="🎮 `/play [tên bài]`", value="Tìm kiếm real-time mượt mà và phát nhạc cực đỉnh.", inline=False)
-    embed.add_field(name="📜 `/queue`", value="Check ngay danh sách bài hát đang chờ.", inline=False)
-    embed.add_field(name="🗑️ `/remove [STT]`", value="Xóa bài cụ thể khỏi hàng đợi.", inline=False)
-    embed.add_field(name="🔄 `/move [cũ] [mới]`", value="Đổi chỗ vị trí các bài trong hàng.", inline=False)
-    embed.add_field(name="🎯 `/collection`", value="Mở bảng quản lý và lưu bài yêu thích bằng một cú click.", inline=False)
-    embed.add_field(name="🔊 `/volume [1-100]`", value="Chỉnh to nhỏ âm thanh tùy ý.", inline=False)
-    embed.add_field(name="⏰ `/sleep [phút]`", value="Hẹn giờ tự động tắt nhạc đi ngủ.", inline=False)
-    embed.set_footer(text="⚡ Coded for Ultimate Gaming Experience | langngo", icon_url=interaction.user.display_avatar.url)
-    await interaction.response.send_message(embed=embed)
+    
+    embed.add_field(
+        name="1️⃣ `/play [tên bài hoặc link]`", 
+        value="• **Cách dùng:** Gõ lệnh và nhập tên bài hát. Hệ thống sẽ mở menu thả xuống (autocomplete) giống Google Chrome để bạn bấm chọn trực tiếp.\n• **Ví dụ:** `/play hvl` rồi chọn bài bạn thích từ danh sách hiện ra.", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="2️⃣ `/queue`", 
+        value="• **Cách dùng:** Xem toàn bộ danh sách các bài hát đang nằm trong hàng chờ phát tiếp theo của server.\n• **Ví dụ:** `/queue`", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="3️⃣ `/remove [số thứ tự]`", 
+        value="• **Cách dùng:** Xóa một bài hát bất kỳ ra khỏi hàng đợi dựa vào số thứ tự (STT) hiển thị trong lệnh `/queue`.\n• **Ví dụ:** `/remove 2` (Xóa bài đứng thứ 2 trong hàng chờ).", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="4️⃣ `/move [vị trí cũ] [vị trí mới]`", 
+        value="• **Cách dùng:** Đổi chỗ sắp xếp bài hát trong hàng chờ.\n• **Ví dụ:** `/move 5 1` (Đưa bài ở vị trí số 5 lên đầu hàng chờ phát ngay).", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="5️⃣ `/collection`", 
+        value="• **Cách dùng:** Mở bảng điều khiển cá nhân dạng nút bấm. Cho phép bạn lưu nhanh bài hát đang phát vào bộ sưu tập riêng hoặc xem lại danh sách bài yêu thích bất cứ lúc nào.", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="6️⃣ `/volume [1 - 100]`", 
+        value="• **Cách dùng:** Điều chỉnh mức âm lượng to hoặc nhỏ cho bot trong kênh thoại.\n• **Ví dụ:** `/volume 50` (Chỉnh âm lượng về mức 50%).", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="7️⃣ `/sleep [số phút]`", 
+        value="• **Cách dùng:** Hẹn giờ tự động dừng nhạc, xóa hàng chờ và ngắt kết nối bot khỏi phòng thoại sau khoảng thời gian chỉ định để đi ngủ.\n• **Ví dụ:** `/sleep 30` (Tự động tắt sau 30 phút).", 
+        inline=False
+    )
+    
+    embed.set_footer(text="⚡ Coded for Ultimate Gaming Experience | Music langngo", icon_url=interaction.user.display_avatar.url)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
