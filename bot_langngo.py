@@ -18,8 +18,8 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # Cho phép chọn bất kỳ định dạng nào có audio, nếu không có thì lấy video bất kỳ
-    'format': 'bestaudio/best/ba*/b',
+    # 1. Cho phép lấy mọi luồng âm thanh/video khả thi để không dính lỗi "Requested format"
+    'format': 'ba/ba*/bestaudio/best/b',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -34,7 +34,12 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # Bỏ hẳn player_client để yt-dlp tự động xoay xở fallback sang client phù hợp
+    # 2. Bắt buộc xoay vòng các Client di động/TV để qua mặt cơ chế quét IP Datacenter
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'ios', 'mweb', 'tv_embedded']
+        }
+    }
 }
 
 FFMPEG_OPTIONS = {
