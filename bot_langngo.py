@@ -50,20 +50,23 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.webpage_url = data.get('webpage_url', '')
         self.duration = data.get('duration', 0)
 
-    @classmethod
+@classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5):
         loop = loop or asyncio.get_event_loop()
-        # Chạy trong executor để không làm nghẽn vòng lặp chính của bot
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(search, download=False))
+        
+        # Phân biệt nếu là URL từ Autocomplete hay là từ khóa tìm kiếm thường
+        query = search if search.startswith("http") else f"scsearch:{search}"
+        
+        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
         
         if 'entries' in data and data['entries']:
             data = data['entries'][0]
-        elif 'entries' in data:
+        else:
             raise Exception("Không tìm thấy kết quả phù hợp trên SoundCloud!")
 
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
         return cls(audio_source, data=data, volume=volume)
-
+        
 # Thuật toán Autocomplete thông minh với độ trễ thấp
 async def search_soundcloud(current: str):
     if not current or len(current.strip()) == 0:
