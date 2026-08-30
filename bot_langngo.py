@@ -52,7 +52,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         return cls(discord.FFmpegPCMAudio(filename, **FFMPEG_OPTIONS), data=data)
 
-# ---------------- GIAO DIỆN MENU NÚT BẤM (UI VIEWS) ----------------
+# ---------------- GIAO DIỆN MENU NÚT BẤM ----------------
 class MusicControlView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=None)
@@ -101,7 +101,7 @@ async def on_ready():
     await bot.tree.sync()
     print(f"✅ Bot {bot.user} đã online và sẵn sàng!")
 
-# ---------------- LỆNH /PLAY HOẶC !PLAY ----------------
+# ---------------- LỆNH PLAY ----------------
 @bot.hybrid_command(name="play", description="Phát nhạc từ SoundCloud kèm giao diện điều khiển")
 async def play(ctx: commands.Context, *, search: str):
     if not ctx.author.voice:
@@ -116,13 +116,12 @@ async def play(ctx: commands.Context, *, search: str):
         player = await YTDLSource.from_url(search, loop=bot.loop, stream=True)
         ctx.voice_client.play(player, after=lambda e: print(f'Lỗi khi phát: {e}') if e else None)
         
-        # Tạo khung Embed hiển thị bài hát đẹp mắt kèm Menu nút bấm
         embed = discord.Embed(
             title="🎶 Đang Phát Nhạc",
             description=f"**{player.title}**",
             color=discord.Color.blurple()
         )
-        embed.set_footer(text=Yêu cầu bởi {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
+        embed.set_footer(text=f"Yêu cầu bởi {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
         
         view = MusicControlView(ctx)
         await ctx.send(embed=embed, view=view)
