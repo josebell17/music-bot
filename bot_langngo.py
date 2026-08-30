@@ -377,8 +377,7 @@ async def sleep(interaction: discord.Interaction, minutes: int):
 @bot.tree.command(name="help", description="🚀 Hướng dẫn toàn bộ hệ thống lệnh")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="✧ ── ✦ HƯỚNG DẪN HỆ THỐNG MUSIC LANGNGO (ECO MODE) ✦ ── ✧",
-        description="Bot được tối ưu hóa chuyên sâu cho máy ảo tài nguyên thấp (0.1 CPU / 512MB RAM).",
+        title="✧ ── ✦ HƯỚNG DẪN HỆ THỐNG MUSIC LANGNGO ✦ ── ✧",
         color=discord.Color.from_rgb(88, 24, 131)
     )
     embed.add_field(name="🔮 `/play [tên/link]`", value="Phát nhạc trực tiếp từ SoundCloud.", inline=False)
