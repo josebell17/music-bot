@@ -18,8 +18,8 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # Mở rộng tìm kiếm định dạng audio để tránh lỗi Requested format
-    'format': 'bestaudio/best/m4a/mp4/webm',
+    # Thay đổi format sang cấu hình mở rộng linh hoạt nhất
+    'format': 'ba/ba*/bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -34,10 +34,10 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # Cấu hình client tương thích
+    # Chỉ định client TvHTML5 & Web Embedded để lấy đúng stream nhạc chuẩn
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios', 'mweb']
+            'player_client': ['tv_embedded', 'web_embedded', 'mweb']
         }
     }
 }
