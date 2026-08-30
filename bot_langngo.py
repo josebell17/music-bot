@@ -17,10 +17,9 @@ class MusicBot(commands.Bot):
 
 bot = MusicBot()
 
-# Cấu hình phát nhạc qua SoundCloud (Không cần Cookie / Token)
 YTDL_OPTIONS = {
-    'default_search': 'scsearch',
-    'format': 'bestaudio/best',
+    'default_search': 'ytsearch',
+    'format': 'bestaudio/ba/b/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -32,6 +31,14 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
+    
+    # Bypass chặn IP Render bằng cách gọi qua Invidious/Piped instance
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['tv_embedded', 'android', 'web_embedded'],
+            'skip': ['webpage', 'configs']
+        }
+    }
 }
 
 FFMPEG_OPTIONS = {
