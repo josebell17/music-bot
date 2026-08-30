@@ -19,7 +19,8 @@ bot = MusicBot()
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
     'default_search': 'ytsearch',
-    'format': 'bestaudio/best',
+    # 1. Cho phép lấy bất kỳ luồng stream nào khả thi nhất
+    'format': 'ba/ba*/bestaudio/best/b',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -31,12 +32,14 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
-    'cookiefile': '/etc/secrets/cookies.txt',
     
-    # Kết hợp các client có độ ổn định cao nhất hiện tại trên IP Server
+    # Bỏ hẳn dòng 'cookiefile' vì IP Render dùng Cookie bị YouTube cờ đen
+    
+    # 2. Sử dụng Client TV/Android Embed để lấy stream trực tiếp không qua JS Challenge
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv_embedded', 'ios', 'web']
+            'player_client': ['tv', 'android'],
+            'skip': ['hls', 'dash']
         }
     }
 }
