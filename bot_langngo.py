@@ -6,7 +6,6 @@ from discord.ext import commands
 import yt_dlp
 from collections import defaultdict
 
-# Cấu hình logging tối giản để tiết kiệm I/O đĩa
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s [%(levelname)s] %(message)s')
 
 intents = discord.Intents.default()
@@ -20,7 +19,7 @@ volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
 user_collections = defaultdict(list)
 
-# Tối ưu yt-dlp ở mức nhẹ nhất, tắt hoàn toàn warning và log rác
+# Đã loại bỏ 'extract_flat' để đảm bảo luôn lấy được link stream chuẩn xác cho mọi bài hát
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -30,13 +29,12 @@ YTDL_OPTIONS = {
     'nocheckcertificate': True,
     'quiet': True,
     'no_warnings': True,
-    'extract_flat': True,
 }
 
-# 🛠️ CẤU HÌNH SIÊU TỐI ƯU CHO 0.1 CPU & 512MB RAM
+# Tối ưu hóa tuyệt đối cho FFmpeg trên máy ảo 0.1 CPU & 512MB RAM
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -probesize 32K -analyzeduration 0 -nostdin',
-    'options': '-vn -b:a 96k -threads 1', # Giảm bitrate xuống 96k và ép buộc dùng đúng 1 luồng CPU để tránh quá tải
+    'options': '-vn -b:a 96k -threads 1',
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -77,7 +75,7 @@ async def play_next(ctx):
             try:
                 embed = discord.Embed(
                     title="✧ ── ✦ 𝕸𝖚𝖘𝖎𝖈 𝖑𝖆𝖓𝖌𝖓𝖌𝖔 ✦ ── ✧", 
-                    description=f"🔮 **Đang Phát:** \n` ⟡ ` **{player.title}**", 
+                    description=f"🔮 **Đang Phát:** \n**{player.title}**", 
                     color=discord.Color.from_rgb(88, 24, 131)
                 )
                 asyncio.run_coroutine_threadsafe(ctx.send(embed=embed, view=MusicControlView(ctx)), bot.loop)
@@ -86,7 +84,7 @@ async def play_next(ctx):
     else:
         ctx.current_player = None
         if ctx.voice_client and ctx.voice_client.is_connected():
-            await asyncio.sleep(60) # Rút ngắn thời gian chờ ngắt kết nối xuống 60s để giải phóng RAM nhanh hơn
+            await asyncio.sleep(60)
             if not ctx.voice_client.is_playing() and len(queues[guild_id]) == 0:
                 await ctx.voice_client.disconnect()
 
@@ -316,15 +314,20 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if not q or not (1 <= index <= len(q)):
         return await interaction.response.send_message("⚠️ Số thứ tự trong hàng chờ không hợp lệ.", ephemeral=True)
     if not (1 <= amount <= 10):
-        return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ từ 1 đến 10 để tiết kiệm RAM.", ephemeral=True)
+        return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ từ 1 đến 10.", ephemeral=True)
     
     target_song = q[index - 1]
-    for _ in range(amount):
-        # Tái sử dụng trực tiếp nguồn dữ liệu để không tốn tài nguyên gọi mạng ngầm
-        duplicated_player = await YTDLSource.create_source(target_song.url, loop=bot.loop, volume=volumes[guild_id])
-        q.insert(index, duplicated_player)
-        
-    await interaction.response.send_message(f"🧬 Đã nhân bản thành công bài **{target_song.title}** thêm **{amount} lần** vào hàng đợi!")
+    current_vol = volumes[guild_id]
+    
+    await interaction.response.defer()
+    try:
+        for _ in range(amount):
+            # Tạo mới player chuẩn xác từ URL gốc của bài hát mục tiêu
+            duplicated_player = await YTDLSource.create_source(target_song.url, loop=bot.loop, volume=current_vol)
+            q.insert(index, duplicated_player)
+        await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_song.title}** thêm **{amount} lần** vào hàng đợi!")
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
 
 @bot.tree.command(name="move", description="🔄 Đổi vị trí bài hát trong hàng đợi")
 @discord.app_commands.describe(from_pos="Vị trí cũ", to_pos="Vị trí mới")
