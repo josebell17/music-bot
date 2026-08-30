@@ -19,7 +19,7 @@ volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
 user_collections = defaultdict(list)
 
-# Đã loại bỏ 'extract_flat' để đảm bảo luôn lấy được link stream chuẩn xác cho mọi bài hát
+# Cấu hình yt_dlp tối ưu
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -31,7 +31,7 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
-# Tối ưu hóa tuyệt đối cho FFmpeg trên máy ảo 0.1 CPU & 512MB RAM
+# Tối ưu hóa tuyệt đối cho FFmpeg trên máy ảo hạn chế tài nguyên
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -probesize 32K -analyzeduration 0 -nostdin',
     'options': '-vn -b:a 96k -threads 1',
@@ -306,23 +306,46 @@ async def remove(interaction: discord.Interaction, index: int, count: int = 1):
     titles = ", ".join([item.title for item in removed_items])
     await interaction.response.send_message(f"🗑️ Đã xóa {count} bài từ vị trí `{index}`: **{titles}**")
 
-@bot.tree.command(name="duplicate", description="🧬 Nhân bản một bài hát trong hàng chờ thành nhiều lần")
-@discord.app_commands.describe(index="Số thứ tự bài trong /queue cần nhân bản", amount="Số lượng bản sao muốn thêm")
+@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài đang phát (nhập 0) hoặc trong hàng chờ (nhập số thứ tự)")
+@discord.app_commands.describe(index="Nhập 0 để nhân bản bài đang phát, hoặc nhập số thứ tự trong /queue", amount="Số lượng bản sao muốn thêm")
 async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     guild_id = interaction.guild.id
     q = queues[guild_id]
-    if not q or not (1 <= index <= len(q)):
-        return await interaction.response.send_message("⚠️ Số thứ tự trong hàng chờ không hợp lệ.", ephemeral=True)
+    current_vol = volumes[guild_id]
+    
     if not (1 <= amount <= 10):
         return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ từ 1 đến 10.", ephemeral=True)
     
-    target_song = q[index - 1]
-    current_vol = volumes[guild_id]
+    # Trường hợp index = 0: Nhân bản bài đang phát trực tiếp
+    if index == 0:
+        if interaction.guild.voice_client and interaction.guild.voice_client.source:
+            source_obj = interaction.guild.voice_client.source
+            target_url = getattr(source_obj, 'url', None)
+            target_title = getattr(source_obj, 'title', "Bài hát đang phát")
+            
+            if not target_url:
+                return await interaction.response.send_message("⚠️ Không tìm thấy nguồn URL của bài đang phát.", ephemeral=True)
+            
+            await interaction.response.defer()
+            try:
+                for _ in range(amount):
+                    duplicated_player = await YTDLSource.create_source(target_url, loop=bot.loop, volume=current_vol)
+                    q.insert(0, duplicated_player) # Chèn lên đầu hàng chờ
+                await interaction.followup.send(f"🧬 Đã nhân bản bài đang phát **{target_title}** thêm **{amount} lần** vào đầu hàng đợi!")
+            except Exception as e:
+                await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
+            return
+        else:
+            return await interaction.response.send_message("⚠️ Hiện tại không có bài hát nào đang phát.", ephemeral=True)
+
+    # Trường hợp nhân bản các bài trong hàng chờ (/queue)
+    if not q or not (1 <= index <= len(q)):
+        return await interaction.response.send_message("⚠️ Số thứ tự trong hàng chờ không hợp lệ (hoặc dùng số 0 để nhân bản bài đang phát).", ephemeral=True)
     
+    target_song = q[index - 1]
     await interaction.response.defer()
     try:
         for _ in range(amount):
-            # Tạo mới player chuẩn xác từ URL gốc của bài hát mục tiêu
             duplicated_player = await YTDLSource.create_source(target_song.url, loop=bot.loop, volume=current_vol)
             q.insert(index, duplicated_player)
         await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_song.title}** thêm **{amount} lần** vào hàng đợi!")
@@ -387,7 +410,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🖤 `/myfavorite`", value="Phát toàn bộ kho lưu trữ cá nhân của bạn.", inline=False)
     embed.add_field(name="📜 `/queue`", value="Xem danh sách các bài đang chờ phát.", inline=False)
     embed.add_field(name="🗑️ `/remove [vị trí] [số lượng]`", value="Xóa 1 hoặc nhiều bài liên tiếp trong hàng chờ.", inline=False)
-    embed.add_field(name="🧬 `/duplicate [vị trí] [số lượng]`", value="Nhân bản một bài hát trong hàng chờ (tối đa 10 lần).", inline=False)
+    embed.add_field(name="🧬 `/duplicate [vị trí / 0] [số lượng]`", value="Nhập `0` để nhân bản bài đang nghe, hoặc nhập số thứ tự trong `/queue` để nhân bản bài chờ (tối đa 10 lần).", inline=False)
     embed.add_field(name="🔄 `/move [cũ] [mới]`", value="Đổi chỗ vị trí bài hát trong hàng chờ.", inline=False)
     embed.add_field(name="💼 `/collection`", value="Bảng tùy chọn lưu, xem, xóa & sắp xếp bộ sưu tập cá nhân.", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng hệ thống.", inline=False)
