@@ -31,14 +31,10 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
-    
-    # Bỏ hẳn cookie, dùng cấu hình extractor bypass IP chặn
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['tv_embedded', 'web_embedded'],
-            'skip': ['webpage']
-        }
-    }
+
+    # Yêu cầu ủy quyền thiết bị OAuth2
+    'username': 'oauth2',
+    'password': '',
 }
 
 FFMPEG_OPTIONS = {
