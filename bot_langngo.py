@@ -50,7 +50,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.webpage_url = data.get('webpage_url', '')
         self.duration = data.get('duration', 0)
 
-@classmethod
+    @classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5):
         loop = loop or asyncio.get_event_loop()
         
