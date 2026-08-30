@@ -21,15 +21,11 @@ class MusicBot(commands.Bot):
 bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
-YTDL_OPTIONS = {
+ytdl_format_options = {
     'format': 'bestaudio/best',
-    'noplaylist': False,  # Hỗ trợ nhận cả link playlist YouTube
+    'noplaylist': True,
     'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
-    'nocheckcertificate': True,
-    'source_address': '0.0.0.0',
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'default_search': 'scsearch',  # Tự động tìm kiếm trên SoundCloud khi nhập từ khóa
 }
 
 FFMPEG_OPTIONS = {
