@@ -35,10 +35,10 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
     
+    # Sử dụng bộ client 'tv' và 'mweb' chuẩn để vượt qua lỗi player response
     'extractor_args': {
         'youtube': {
-            'player_client': ['ios', 'android'],
-            'skip': ['dash', 'hls']
+            'player_client': ['tv', 'mweb']
         }
     }
 }
