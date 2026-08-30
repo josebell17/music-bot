@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import yt_dlp
 from collections import defaultdict
 
@@ -31,10 +31,9 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
-# Tối ưu hóa bộ đệm FFmpeg cho 0.1 vCPU và băng thông mạng tối đa
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 2048 -probesize 16K -analyzeduration 0 -nostdin',
-    'options': '-vn -b:a 96k -threads 1',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 2048 -probesize 32K -analyzeduration 0 -nostdin',
+    'options': '-vn -b:a 128k -ar 48000 -ac 2 -threads 1',
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -51,7 +50,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
     async def create_source(cls, search: str, *, loop=None, volume=0.5, cached_stream_url=None):
         loop = loop or asyncio.get_event_loop()
         
-        # Tái sử dụng luồng URL đã cache, hoàn toàn không gọi yt_dlp search -> cực kỳ tiết kiệm vCPU
         if cached_stream_url:
             try:
                 audio_source = discord.FFmpegPCMAudio(cached_stream_url, **FFMPEG_OPTIONS)
@@ -69,6 +67,14 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
         return cls(audio_source, data=data, volume=volume)
+
+# Tác vụ nền tự động dọn dẹp kho lưu trữ cá nhân nếu phình to quá 50 bài để giải phóng RAM
+@tasks.loop(hours=2)
+async def cleanup_collections_task():
+    for user_id in list(user_collections.keys()):
+        if len(user_collections[user_id]) > 50:
+            # Giữ lại 50 bài mới nhất
+            user_collections[user_id] = user_collections[user_id][-50:]
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -219,6 +225,8 @@ class CollectionView(discord.ui.View):
 
 @bot.event
 async def on_ready():
+    if not cleanup_collections_task.is_running():
+        cleanup_collections_task.start()
     try:
         await bot.tree.sync()
     except Exception:
@@ -302,7 +310,6 @@ async def myfavorite(interaction: discord.Interaction):
             else:
                 queues[guild_id].append(player)
             added += 1
-            # Thêm khoảng nghỉ cực nhỏ giúp vCPU 0.1 không bị nghẽn lệnh liên tục
             await asyncio.sleep(0.05)
         except Exception:
             continue
@@ -339,7 +346,7 @@ async def remove(interaction: discord.Interaction, index: int, count: int = 1):
     titles = ", ".join([item.title for item in removed_items])
     await interaction.response.send_message(f"🗑️ Đã xóa {count} bài từ vị trí `{index}`: **{titles}**")
 
-@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài đang phát (nhập 0) hoặc trong hàng chờ (Tối đa 5 lần)")
+@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài đang phát hoặc trong hàng chờ (Tạm dừng nhạc để xử lý an toàn)")
 @discord.app_commands.describe(index="Nhập 0 cho bài đang phát, hoặc số thứ tự trong /queue", amount="Số bản sao muốn thêm (Tối đa 5)")
 async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     guild_id = interaction.guild.id
@@ -371,6 +378,13 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
         return await interaction.response.send_message("⚠️ Không tìm thấy nguồn dữ liệu để nhân bản.", ephemeral=True)
 
     await interaction.response.defer()
+
+    # TẠM DỪNG (PAUSE) LUỒNG PHÁT CHÍNH ĐỂ TRÁNH GIỆT TIẾNG KHI CPU BỊ GÁNH LỆNH NHÂN BẢN
+    was_playing = False
+    if interaction.guild.voice_client and interaction.guild.voice_client.is_playing():
+        interaction.guild.voice_client.pause()
+        was_playing = True
+
     try:
         cached_url = getattr(target_source, 'stream_url', None)
         for _ in range(amount):
@@ -384,12 +398,16 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
                 q.insert(0, duplicated_player)
             else:
                 q.insert(index, duplicated_player)
-            # Nghỉ cực ngắn giữa mỗi lần tạo bản sao để vCPU 0.1 không bị giật cục luồng phát chính
-            await asyncio.sleep(0.02)
+            # Giãn nhịp để 0.1 vCPU kịp tiêu hóa lệnh
+            await asyncio.sleep(0.08)
                 
         await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
+    finally:
+        # PHÁT TIẾP (RESUME) NGAY SAU KHI LỆNH HOÀN TẤT TRƠN TRU
+        if interaction.guild.voice_client and was_playing:
+            interaction.guild.voice_client.resume()
 
 @bot.tree.command(name="move", description="🔄 Đổi vị trí bài hát trong hàng đợi")
 @discord.app_commands.describe(from_pos="Vị trí cũ", to_pos="Vị trí mới")
@@ -450,7 +468,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🖤 `/myfavorite`", value="Phát siêu tốc kho lưu trữ cá nhân (tối đa 10 bài).", inline=False)
     embed.add_field(name="📜 `/queue`", value="Xem danh sách chờ hiện tại.", inline=False)
     embed.add_field(name="🗑️ `/remove [vị trí] [số lượng]`", value="Xóa bài hát khỏi hàng đợi.", inline=False)
-    embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhập `0` nhân bản bài đang nghe, hoặc số thứ tự bài chờ (Tối đa 5 lần).", inline=False)
+    embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhập `0` nhân bản bài đang nghe, tự tạm dừng và phát tiếp khi xong (Tối đa 5 lần).", inline=False)
     embed.add_field(name="🔄 `/move [cũ] [mới]`", value="Đổi vị trí bài hát trong hàng đợi.", inline=False)
     embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân.", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
