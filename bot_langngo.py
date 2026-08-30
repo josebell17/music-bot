@@ -17,7 +17,19 @@ class MusicBot(commands.Bot):
 
 bot = MusicBot()
 
-COOKIE_PATH = '/etc/secrets/cookies.txt'
+# --- BẮT ĐẦU ĐOẠN CODE THÊM MỚI ---
+# Tự động ghi chuỗi cookie từ Render Environment Variable ra file tạm /tmp/cookies.txt
+COOKIE_PATH = '/tmp/cookies.txt'
+cookie_data = os.getenv('YOUTUBE_COOKIE')
+
+if cookie_data:
+    with open(COOKIE_PATH, 'w', encoding='utf-8') as f:
+        f.write(cookie_data)
+    print("--> [COOKIE]: Đã tạo file cookie từ biến YOUTUBE_COOKIE!")
+else:
+    COOKIE_PATH = None
+    print("--> [COOKIE]: Không tìm thấy biến YOUTUBE_COOKIE!")
+# --- KẾT THÚC ĐOẠN CODE THÊM MỚI ---
 
 YTDL_OPTIONS = {
     'default_search': 'ytsearch',
@@ -33,9 +45,8 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
-    'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
+    'cookiefile': COOKIE_PATH,
     
-    # Sử dụng bộ client 'tv' và 'mweb' chuẩn để vượt qua lỗi player response
     'extractor_args': {
         'youtube': {
             'player_client': ['tv', 'mweb']
