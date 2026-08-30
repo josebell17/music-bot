@@ -52,6 +52,36 @@ class YTDLSource(discord.PCMVolumeTransformer):
         filename = data['url'] if stream else ytdl.prepare_filename(data)
         return cls(discord.FFmpegPCMAudio(filename, **FFMPEG_OPTIONS), data=data)
 
+# ---------------- GIAO DIỆN MENU NÚT BẤM (UI VIEWS) ----------------
+class MusicControlView(discord.ui.View):
+    def __init__(self, ctx):
+        super().__init__(timeout=None)
+        self.ctx = ctx
+
+    @discord.ui.button(label="Tạm dừng", style=discord.ButtonStyle.blurple, emoji="⏸️")
+    async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.ctx.voice_client and self.ctx.voice_client.is_playing():
+            self.ctx.voice_client.pause()
+            await interaction.response.send_message("⏸️ Đã tạm dừng phát nhạc.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Không có nhạc đang phát!", ephemeral=True)
+
+    @discord.ui.button(label="Tiếp tục", style=discord.ButtonStyle.green, emoji="▶️")
+    async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.ctx.voice_client and self.ctx.voice_client.is_paused():
+            self.ctx.voice_client.resume()
+            await interaction.response.send_message("▶️ Đã tiếp tục phát nhạc.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Nhạc không ở trạng thái dừng!", ephemeral=True)
+
+    @discord.ui.button(label="Dừng & Thoát", style=discord.ButtonStyle.red, emoji="⏹️")
+    async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.ctx.voice_client:
+            await self.ctx.voice_client.disconnect()
+            await interaction.response.send_message("⏹️ Đã dừng phát nhạc và rời kênh.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Bot không ở trong kênh thoại!", ephemeral=True)
+
 # ---------------- HTTP SERVER CHO CƠ CHẾ PING 5 PHÚT ----------------
 async def handle(request):
     return web.Response(text="Bot đang online!")
@@ -67,15 +97,12 @@ async def start_web_server():
 
 @bot.event
 async def on_ready():
-    # Khởi chạy Web Server ngầm để nhận request ping duy trì 24/7
     bot.loop.create_task(start_web_server())
-    
-    # Đồng bộ Slash Commands lên Discord
     await bot.tree.sync()
     print(f"✅ Bot {bot.user} đã online và sẵn sàng!")
 
 # ---------------- LỆNH /PLAY HOẶC !PLAY ----------------
-@bot.hybrid_command(name="play", description="Phát nhạc từ SoundCloud")
+@bot.hybrid_command(name="play", description="Phát nhạc từ SoundCloud kèm giao diện điều khiển")
 async def play(ctx: commands.Context, *, search: str):
     if not ctx.author.voice:
         return await ctx.send("❌ Bạn phải vào một Voice Channel trước!")
@@ -88,36 +115,19 @@ async def play(ctx: commands.Context, *, search: str):
     try:
         player = await YTDLSource.from_url(search, loop=bot.loop, stream=True)
         ctx.voice_client.play(player, after=lambda e: print(f'Lỗi khi phát: {e}') if e else None)
-        await ctx.send(f"🎶 Đang phát: **{player.title}**")
+        
+        # Tạo khung Embed hiển thị bài hát đẹp mắt kèm Menu nút bấm
+        embed = discord.Embed(
+            title="🎶 Đang Phát Nhạc",
+            description=f"**{player.title}**",
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text=fYêu cầu bởi {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
+        
+        view = MusicControlView(ctx)
+        await ctx.send(embed=embed, view=view)
     except Exception as e:
         await ctx.send(f"❌ Có lỗi xảy ra: {e}")
-
-# ---------------- LỆNH /PAUSE HOẶC !PAUSE ----------------
-@bot.hybrid_command(name="pause", description="Tạm dừng nhạc")
-async def pause(ctx: commands.Context):
-    if ctx.voice_client and ctx.voice_client.is_playing():
-        ctx.voice_client.pause()
-        await ctx.send("⏸️ Đã tạm dừng phát nhạc.")
-    else:
-        await ctx.send("❌ Hiện không có bài hát nào đang phát!")
-
-# ---------------- LỆNH /RESUME HOẶC !RESUME ----------------
-@bot.hybrid_command(name="resume", description="Tiếp tục phát nhạc")
-async def resume(ctx: commands.Context):
-    if ctx.voice_client and ctx.voice_client.is_paused():
-        ctx.voice_client.resume()
-        await ctx.send("▶️ Đã tiếp tục phát nhạc.")
-    else:
-        await ctx.send("❌ Nhạc đang phát bình thường!")
-
-# ---------------- LỆNH /STOP HOẶC !STOP ----------------
-@bot.hybrid_command(name="stop", description="Dừng phát nhạc và rời kênh")
-async def stop(ctx: commands.Context):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("⏹️ Đã dừng phát nhạc và rời khỏi kênh thoại.")
-    else:
-        await ctx.send("❌ Bot không ở trong kênh thoại!")
 
 # Chạy Bot
 TOKEN = os.getenv("DISCORD_TOKEN")
