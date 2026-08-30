@@ -122,13 +122,13 @@ async def play_next(ctx):
             if not ctx.voice_client.is_playing() and len(queues[guild_id]) == 0:
                 await ctx.voice_client.disconnect()
 
-# Giao diện nút bấm chuẩn mẫu
+# Giao diện nút bấm hoàn toàn tối giản, không chữ, tinh tế và đồng bộ tuyệt đối
 class MusicControlView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=None)
         self.ctx = ctx
 
-    @discord.ui.button(label="Tạm dừng", style=discord.ButtonStyle.secondary, emoji="⏸️")
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="⏸️")
     async def pause(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.ctx.voice_client and self.ctx.voice_client.is_playing():
             self.ctx.voice_client.pause()
@@ -136,7 +136,7 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Không có nhạc đang phát!", ephemeral=True)
 
-    @discord.ui.button(label="Tiếp tục", style=discord.ButtonStyle.success, emoji="▶️")
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="▶️")
     async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.ctx.voice_client and self.ctx.voice_client.is_paused():
             self.ctx.voice_client.resume()
@@ -144,7 +144,7 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Nhạc không ở trạng thái dừng!", ephemeral=True)
 
-    @discord.ui.button(label="Bỏ qua", style=discord.ButtonStyle.primary, emoji="⏭️")
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="⏭️")
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.ctx.voice_client and self.ctx.voice_client.is_playing():
             self.ctx.voice_client.stop()
@@ -152,7 +152,7 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Không có bài để bỏ qua!", ephemeral=True)
 
-    @discord.ui.button(label="Lưu Yêu Thích", style=discord.ButtonStyle.blurple, emoji="💖")
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="💖")
     async def fast_save(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = interaction.user.id
         current = getattr(self.ctx, 'current_player', None)
@@ -164,7 +164,7 @@ class MusicControlView(discord.ui.View):
         else:
             await interaction.response.send_message("⚠️ Bài này đã có sẵn trong bộ sưu tập của bạn rồi!", ephemeral=True)
 
-    @discord.ui.button(label="Rời phòng", style=discord.ButtonStyle.danger, emoji="⏹️")
+    @discord.ui.button(style=discord.ButtonStyle.danger, emoji="⏹️")
     async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild_id = self.ctx.guild.id
         queues[guild_id].clear()
@@ -177,7 +177,7 @@ class CollectionView(discord.ui.View):
         super().__init__(timeout=60)
         self.user_id = user_id
 
-    @discord.ui.button(label="Lưu bài đang phát", style=discord.ButtonStyle.success, emoji="📥")
+    @discord.ui.button(style=discord.ButtonStyle.success, emoji="📥")
     async def save_current(self, interaction: discord.Interaction, button: discord.ui.Button):
         ctx = await commands.Context.from_interaction(interaction)
         current = getattr(ctx, 'current_player', None)
@@ -189,7 +189,7 @@ class CollectionView(discord.ui.View):
         else:
             await interaction.response.send_message("⚠️ Bài hát này đã có trong bộ sưu tập của bạn!", ephemeral=True)
 
-    @discord.ui.button(label="Xem danh sách", style=discord.ButtonStyle.primary, emoji="📂")
+    @discord.ui.button(style=discord.ButtonStyle.primary, emoji="📂")
     async def view_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         favs = user_collections[self.user_id]
         if not favs:
@@ -266,7 +266,7 @@ async def myfavorite(interaction: discord.Interaction):
     user_id = interaction.user.id
     favs = user_collections[user_id]
     if not favs:
-        return await interaction.response.send_message("📭 Bộ sưu tập yêu thích của bạn đang trống! Hãy dùng nút `Lưu Yêu Thích` khi nghe bài hát bạn thích nhé.", ephemeral=True)
+        return await interaction.response.send_message("📭 Bộ sưu tập yêu thích của bạn đang trống! Hãy dùng nút `💖` khi nghe bài hát bạn thích nhé.", ephemeral=True)
 
     await interaction.response.defer()
     ctx = await commands.Context.from_interaction(interaction)
