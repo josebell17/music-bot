@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import yt_dlp
 from collections import defaultdict
 
@@ -31,6 +31,7 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
+# Tối ưu hóa bộ đệm FFmpeg với âm thanh chất lượng cao (128kbps / 48kHz) chuẩn 0.1 vCPU
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 2048 -probesize 32K -analyzeduration 0 -nostdin',
     'options': '-vn -b:a 128k -ar 48000 -ac 2 -threads 1',
@@ -67,14 +68,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
         return cls(audio_source, data=data, volume=volume)
-
-# Tác vụ nền tự động dọn dẹp kho lưu trữ cá nhân nếu phình to quá 50 bài để giải phóng RAM
-@tasks.loop(hours=2)
-async def cleanup_collections_task():
-    for user_id in list(user_collections.keys()):
-        if len(user_collections[user_id]) > 50:
-            # Giữ lại 50 bài mới nhất
-            user_collections[user_id] = user_collections[user_id][-50:]
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -141,9 +134,12 @@ class MusicControlView(discord.ui.View):
             return await interaction.response.send_message("⚠️ Không có bài hát nào đang hoạt động.", ephemeral=True)
         
         favs = user_collections[user_id]
+        if len(favs) >= 10:
+            return await interaction.response.send_message("⚠️ Kho lưu trữ cá nhân đã đạt giới hạn tối đa 10 bài!", ephemeral=True)
+            
         if not any(song['title'] == current.title for song in favs):
             favs.append({'title': current.title, 'stream_url': current.stream_url})
-            await interaction.response.send_message(f"✨ Đã lưu kèm tối ưu link: **{current.title}**", ephemeral=True)
+            await interaction.response.send_message(f"✨ Đã lưu vào kho cá nhân: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
             await interaction.response.send_message("💠 Bài hát đã có trong bộ sưu tập.", ephemeral=True)
 
@@ -171,7 +167,7 @@ class RemoveCollectionModal(discord.ui.Modal, title="🗑️ Xóa Bài Hát Kh�
             await interaction.response.send_message("⚠️ Vui lòng chỉ nhập số.", ephemeral=True)
 
 class ReorderCollectionModal(discord.ui.Modal, title="🔄 Sắp Xếp Lại Bộ Sưu Tập"):
-    from_pos = discord.ui.TextInput(label="Vị trí cũ", placeholder="Ví dụ: 5", required=True)
+    from_pos = discord.ui.TextInput(label="Vị trí cũ", placeholder="Ví dụ: 3", required=True)
     to_pos = discord.ui.TextInput(label="Vị trí mới", placeholder="Ví dụ: 1", required=True)
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
@@ -200,9 +196,12 @@ class CollectionView(discord.ui.View):
             return await interaction.response.send_message("⚠️ Không có bài hát đang phát!", ephemeral=True)
         
         favs = user_collections[self.user_id]
+        if len(favs) >= 10:
+            return await interaction.response.send_message("⚠️ Kho lưu trữ cá nhân đã đạt giới hạn tối đa 10 bài!", ephemeral=True)
+
         if not any(song['title'] == current.title for song in favs):
             favs.append({'title': current.title, 'stream_url': current.stream_url})
-            await interaction.response.send_message(f"✨ Đã lưu tối ưu: **{current.title}**", ephemeral=True)
+            await interaction.response.send_message(f"✨ Đã lưu vào kho: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
             await interaction.response.send_message("💠 Đã có sẵn trong kho.", ephemeral=True)
 
@@ -211,8 +210,8 @@ class CollectionView(discord.ui.View):
         favs = user_collections[self.user_id]
         if not favs:
             return await interaction.response.send_message("📭 Kho lưu trữ trống.", ephemeral=True)
-        fav_list = "\n".join([f"` ⟡ {i+1}. ` {song['title']}" for i, song in enumerate(favs[:10])])
-        embed = discord.Embed(title=f"🔮 Kho Của — {interaction.user.name}", description=fav_list, color=discord.Color.from_rgb(88, 24, 131))
+        fav_list = "\n".join([f"` ⟡ {i+1}. ` {song['title']}" for i, song in enumerate(favs)])
+        embed = discord.Embed(title=f"🔮 Kho Của — {interaction.user.name} ({len(favs)}/10)", description=fav_list, color=discord.Color.from_rgb(88, 24, 131))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(style=discord.ButtonStyle.danger, emoji="🗑️", label="Xóa bài")
@@ -225,8 +224,6 @@ class CollectionView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    if not cleanup_collections_task.is_running():
-        cleanup_collections_task.start()
     try:
         await bot.tree.sync()
     except Exception:
@@ -379,7 +376,6 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
 
     await interaction.response.defer()
 
-    # TẠM DỪNG (PAUSE) LUỒNG PHÁT CHÍNH ĐỂ TRÁNH GIỆT TIẾNG KHI CPU BỊ GÁNH LỆNH NHÂN BẢN
     was_playing = False
     if interaction.guild.voice_client and interaction.guild.voice_client.is_playing():
         interaction.guild.voice_client.pause()
@@ -398,14 +394,12 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
                 q.insert(0, duplicated_player)
             else:
                 q.insert(index, duplicated_player)
-            # Giãn nhịp để 0.1 vCPU kịp tiêu hóa lệnh
             await asyncio.sleep(0.08)
                 
         await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
     finally:
-        # PHÁT TIẾP (RESUME) NGAY SAU KHI LỆNH HOÀN TẤT TRƠN TRU
         if interaction.guild.voice_client and was_playing:
             interaction.guild.voice_client.resume()
 
@@ -421,10 +415,10 @@ async def move(interaction: discord.Interaction, from_pos: int, to_pos: int):
     q.insert(to_pos - 1, song)
     await interaction.response.send_message(f"🔄 Đã chuyển **{song.title}** từ vị trí `{from_pos}` sang `{to_pos}`.")
 
-@bot.tree.command(name="collection", description="💼 Quản lý kho lưu trữ cá nhân")
+@bot.tree.command(name="collection", description="💼 Quản lý kho lưu trữ cá nhân (Tối đa 10 bài)")
 async def collection(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    embed = discord.Embed(title="🌌 Kho Lưu Trữ Cá Nhân", description="Sử dụng bảng điều khiển bên dưới:", color=discord.Color.from_rgb(88, 24, 131))
+    embed = discord.Embed(title="🌌 Kho Lưu Trữ Cá Nhân", description="Sử dụng bảng điều khiển bên dưới (Tối đa 10 bài):", color=discord.Color.from_rgb(88, 24, 131))
     await interaction.followup.send(embed=embed, view=CollectionView(interaction.user.id), ephemeral=True)
 
 @bot.tree.command(name="volume", description="🔊 Chỉnh âm lượng (1 - 100)")
@@ -470,7 +464,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🗑️ `/remove [vị trí] [số lượng]`", value="Xóa bài hát khỏi hàng đợi.", inline=False)
     embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhập `0` nhân bản bài đang nghe, tự tạm dừng và phát tiếp khi xong (Tối đa 5 lần).", inline=False)
     embed.add_field(name="🔄 `/move [cũ] [mới]`", value="Đổi vị trí bài hát trong hàng đợi.", inline=False)
-    embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân.", inline=False)
+    embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân (Tối đa 10 bài).", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
     embed.add_field(name="🌙 `/sleep [phút]`", value="Hẹn giờ ngắt bot tự động.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
