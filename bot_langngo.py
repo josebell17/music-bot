@@ -122,7 +122,7 @@ async def play(ctx: commands.Context, *, search: str):
             description=f"**{player.title}**",
             color=discord.Color.blurple()
         )
-        embed.set_footer(text=fYêu cầu bởi {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
+        embed.set_footer(text=Yêu cầu bởi {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
         
         view = MusicControlView(ctx)
         await ctx.send(embed=embed, view=view)
