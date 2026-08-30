@@ -63,22 +63,26 @@ class YTDLSource(discord.PCMVolumeTransformer):
         return cls(audio_source, data=data, volume=volume)
 
 async def search_soundcloud(current: str):
-    if not current or len(current.strip()) == 0:
+    if not current or len(current.strip()) < 2:
         return []
     try:
         loop = asyncio.get_event_loop()
         info = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: ytdl.extract_info(f"scsearch5:{current}", download=False)),
-            timeout=2.0
+            loop.run_in_executor(
+                None, 
+                lambda: ytdl.extract_info(f"scsearch5:{current}", download=False)
+            ),
+            timeout=4.0
         )
         entries = info.get('entries', [])
         results = []
         for entry in entries:
-            title = entry.get('title', 'Unknown')
+            title = entry.get('title')
             webpage_url = entry.get('webpage_url') or entry.get('url')
-            if len(title) > 100:
-                title = title[:97] + "..."
-            results.append(discord.app_commands.Choice(name=title, value=webpage_url))
+            if title and webpage_url:
+                if len(title) > 100:
+                    title = title[:97] + "..."
+                results.append(discord.app_commands.Choice(name=title, value=webpage_url))
         return results
     except Exception:
         return []
