@@ -1,33 +1,35 @@
 import os
 import discord
+from discord import app_commands
 from discord.ext import commands
 import wavelink
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="/", intents=intents)
 
-# Thông tin kết nối Lavalink Node
-LAVALINK_HOST = os.getenv("LAVALINK_HOST", "free-lava.heavencloud.in")
-LAVALINK_PORT = int(os.getenv("LAVALINK_PORT", 4000))
-LAVALINK_PASS = os.getenv("LAVALINK_PASS", "heavencloud.in")
+class MusicBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        # Kết nối Lavalink Node
+        host = os.getenv("LAVALINK_HOST", "free-lava.heavencloud.in")
+        port = int(os.getenv("LAVALINK_PORT", 4000))
+        password = os.getenv("LAVALINK_PASS", "heavencloud.in")
+
+        node = wavelink.Node(uri=f"http://{host}:{port}", password=password)
+        await wavelink.Pool.connect(nodes=[node], client=self)
+        
+        # Đồng bộ Slash Commands với Discord
+        await self.tree.sync()
+        print("Đã đồng bộ Slash Commands!")
+
+bot = MusicBot()
 
 @bot.event
 async def on_ready():
-    print(f"Bot đã online với tên: {bot.user}")
-    
-    # Kết nối Bot tới Lavalink Node
-    node = wavelink.Node(
-        uri=f"http://{LAVALINK_HOST}:{LAVALINK_PORT}",
-        password=LAVALINK_PASS
-    )
-    await wavelink.Pool.connect(nodes=[node], client=bot)
+    print(f"Bot đã online: {bot.user}")
 
-@bot.event
-async def on_wavelink_node_ready(payload: wavelink.NodeReadyEventPayload):
-    print(f"Đã kết nối thành công tới Lavalink Node: {payload.node.identifier}")
-
-# Sự kiện tự động phát bài tiếp theo khi bài hiện tại kết thúc
 @bot.event
 async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
     player: wavelink.Player = payload.player
@@ -35,113 +37,92 @@ async def on_wavelink_track_end(payload: wavelink.TrackEndEventPayload):
         next_track = await player.queue.get_wait()
         await player.play(next_track)
 
-# ---------------- LỆNH PHÁT NHẠC (PLAY) ----------------
-@bot.command(name="play", aliases=["p"])
-async def play(ctx: commands.Context, *, search: str):
-    if not ctx.author.voice:
-        return await ctx.send("❌ Bạn phải vào một Voice Channel trước!")
+# ---------------- LỆNH /PLAY ----------------
+@bot.tree.command(name="play", description="Phát nhạc từ YouTube/SoundCloud")
+@app_commands.describe(search="Tên bài hát hoặc đường link")
+async def play(interaction: discord.Interaction, search: str):
+    if not interaction.user.voice:
+        return await interaction.response.send_message("❌ Bạn phải vào một Voice Channel trước!", ephemeral=True)
 
-    # Tham gia kênh thoại
-    if not ctx.voice_client:
-        vc: wavelink.Player = await ctx.author.voice.channel.connect(cls=wavelink.Player)
+    # Báo cho Discord biết bot đang xử lý (tránh lỗi 3s không phản hồi)
+    await interaction.response.defer()
+
+    # Kết nối vào voice channel
+    if not interaction.guild.voice_client:
+        vc: wavelink.Player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
     else:
-        vc: wavelink.Player = ctx.voice_client
+        vc: wavelink.Player = interaction.guild.voice_client
 
     # Tìm kiếm bài hát
     tracks: wavelink.Search = await wavelink.Playable.search(search)
     if not tracks:
-        return await ctx.send("❌ Không tìm thấy bài hát nào!")
+        return await interaction.followup.send("❌ Không tìm thấy bài hát nào!")
 
     track = tracks[0]
 
-    # Nếu đang phát nhạc thì thêm vào hàng đợi (Queue), nếu không thì phát ngay
     if vc.playing:
         await vc.queue.put_wait(track)
-        await ctx.send(f"➕ Đã thêm vào hàng đợi: **{track.title}**")
+        await interaction.followup.send(f"➕ Đã thêm vào hàng đợi: **{track.title}**")
     else:
         await vc.play(track)
-        await ctx.send(f"🎶 Đang phát: **{track.title}**")
+        await interaction.followup.send(f"🎶 Đang phát: **{track.title}**")
 
-# ---------------- LỆNH TẠM DỪNG (PAUSE) ----------------
-@bot.command(name="pause")
-async def pause(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
+# ---------------- LỆNH /PAUSE ----------------
+@bot.tree.command(name="pause", description="Tạm dừng bài hát")
+async def pause(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
     if not vc or not vc.playing:
-        return await ctx.send("❌ Bot hiện không phát bài hát nào!")
-    
-    await vc.pause(True)
-    await ctx.send("⏸️ Đã tạm dừng phát nhạc.")
+        return await interaction.response.send_message("❌ Bot hiện không phát bài hát nào!", ephemeral=True)
 
-# ---------------- LỆNH TIẾP TỤC (RESUME) ----------------
-@bot.command(name="resume")
-async def resume(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
-    if not vc:
-        return await ctx.send("❌ Bot chưa vào kênh thoại!")
-    if not vc.paused:
-        return await ctx.send("❌ Nhạc đang phát bình thường, không bị tạm dừng!")
+    await vc.pause(True)
+    await interaction.response.send_message("⏸️ Đã tạm dừng phát nhạc.")
+
+# ---------------- LỆNH /RESUME ----------------
+@bot.tree.command(name="resume", description="Tiếp tục phát nhạc")
+async def resume(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
+    if not vc or not vc.paused:
+        return await interaction.response.send_message("❌ Nhạc đang phát bình thường!", ephemeral=True)
 
     await vc.pause(False)
-    await ctx.send("▶️ Đã tiếp tục phát nhạc.")
+    await interaction.response.send_message("▶️ Đã tiếp tục phát nhạc.")
 
-# ---------------- LỆNH BỎ QUA BÀI (SKIP) ----------------
-@bot.command(name="skip", aliases=["s"])
-async def skip(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
+# ---------------- LỆNH /SKIP ----------------
+@bot.tree.command(name="skip", description="Bỏ qua bài hát hiện tại")
+async def skip(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
     if not vc or not vc.playing:
-        return await ctx.send("❌ Không có bài hát nào để bỏ qua!")
+        return await interaction.response.send_message("❌ Không có bài hát nào để bỏ qua!", ephemeral=True)
 
     await vc.skip(force=True)
-    await ctx.send("⏭️ Đã chuyển sang bài tiếp theo.")
+    await interaction.response.send_message("⏭️ Đã chuyển sang bài tiếp theo.")
 
-# ---------------- LỆNH DỪNG & THÁT (STOP) ----------------
-@bot.command(name="stop", aliases=["leave", "disconnect"])
-async def stop(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
+# ---------------- LỆNH /STOP ----------------
+@bot.tree.command(name="stop", description="Dừng phát nhạc và rời kênh")
+async def stop(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
     if not vc:
-        return await ctx.send("❌ Bot không ở trong kênh thoại nào!")
+        return await interaction.response.send_message("❌ Bot không ở trong kênh thoại!", ephemeral=True)
 
     vc.queue.clear()
     await vc.disconnect()
-    await ctx.send("⏹️ Đã dừng phát nhạc, xóa hàng đợi và rời khỏi kênh thoại.")
+    await interaction.response.send_message("⏹️ Đã dừng phát nhạc và rời khỏi kênh.")
 
-# ---------------- LỆNH XEM HÀNG ĐỢI (QUEUE) ----------------
-@bot.command(name="queue", aliases=["q"])
-async def queue(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
+# ---------------- LỆNH /QUEUE ----------------
+@bot.tree.command(name="queue", description="Xem hàng đợi bài hát")
+async def queue(interaction: discord.Interaction):
+    vc: wavelink.Player = interaction.guild.voice_client
     if not vc or vc.queue.is_empty:
-        return await ctx.send("📄 Hàng đợi hiện đang trống!")
+        return await interaction.response.send_message("📄 Hàng đợi hiện đang trống!", ephemeral=True)
 
     msg = "**📄 Hàng đợi bài hát:**\n"
     for i, track in enumerate(vc.queue, start=1):
         msg += f"{i}. **{track.title}**\n"
-        if i >= 10:  # Chỉ hiển thị tối đa 10 bài đầu tiên
+        if i >= 10:
             msg += f"... và còn {len(vc.queue) - 10} bài nữa."
             break
 
-    await ctx.send(msg)
-
-# ---------------- LỆNH BÀI ĐANG PHÁT (NOW PLAYING) ----------------
-@bot.command(name="np")
-async def now_playing(ctx: commands.Context):
-    vc: wavelink.Player = ctx.voice_client
-    if not vc or not vc.current:
-        return await ctx.send("❌ Hiện không có bài hát nào đang phát!")
-
-    await ctx.send(f"🎧 Đang phát: **{vc.current.title}**")
-
-# ---------------- LỆNH CHỈNH ÂM LƯỢNG (VOLUME) ----------------
-@bot.command(name="volume", aliases=["vol"])
-async def volume(ctx: commands.Context, vol: int):
-    vc: wavelink.Player = ctx.voice_client
-    if not vc:
-        return await ctx.send("❌ Bot chưa vào kênh thoại!")
-    
-    if not 0 <= vol <= 100:
-        return await ctx.send("❌ Âm lượng phải nằm trong khoảng từ 0 đến 100!")
-
-    await vc.set_volume(vol)
-    await ctx.send(f"🔊 Đã chỉnh âm lượng thành: **{vol}%**")
+    await interaction.response.send_message(msg)
 
 # Chạy Bot
 TOKEN = os.getenv("DISCORD_TOKEN")
