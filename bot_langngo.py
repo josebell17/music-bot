@@ -45,6 +45,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
         self.title = data.get('title', 'Unknown Title')
         self.url = data.get('url', '')
+        # Lưu lại link trang gốc hoặc tiêu đề để hỗ trợ nhân bản chính xác
+        self.webpage_url = data.get('webpage_url') or self.title
 
     @classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5):
@@ -316,39 +318,35 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if not (1 <= amount <= 10):
         return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ từ 1 đến 10.", ephemeral=True)
     
-    # Trường hợp index = 0: Nhân bản bài đang phát trực tiếp
+    target_query = None
+    target_title = None
+
     if index == 0:
         if interaction.guild.voice_client and interaction.guild.voice_client.source:
             source_obj = interaction.guild.voice_client.source
-            target_url = getattr(source_obj, 'url', None)
+            target_query = getattr(source_obj, 'webpage_url', None) or getattr(source_obj, 'title', None)
             target_title = getattr(source_obj, 'title', "Bài hát đang phát")
-            
-            if not target_url:
-                return await interaction.response.send_message("⚠️ Không tìm thấy nguồn URL của bài đang phát.", ephemeral=True)
-            
-            await interaction.response.defer()
-            try:
-                for _ in range(amount):
-                    duplicated_player = await YTDLSource.create_source(target_url, loop=bot.loop, volume=current_vol)
-                    q.insert(0, duplicated_player) # Chèn lên đầu hàng chờ
-                await interaction.followup.send(f"🧬 Đã nhân bản bài đang phát **{target_title}** thêm **{amount} lần** vào đầu hàng đợi!")
-            except Exception as e:
-                await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
-            return
         else:
             return await interaction.response.send_message("⚠️ Hiện tại không có bài hát nào đang phát.", ephemeral=True)
+    else:
+        if not q or not (1 <= index <= len(q)):
+            return await interaction.response.send_message("⚠️ Số thứ tự trong hàng đợi không hợp lệ.", ephemeral=True)
+        target_song = q[index - 1]
+        target_query = getattr(target_song, 'webpage_url', None) or target_song.title
+        target_title = target_song.title
 
-    # Trường hợp nhân bản các bài trong hàng chờ (/queue)
-    if not q or not (1 <= index <= len(q)):
-        return await interaction.response.send_message("⚠️ Số thứ tự trong hàng chờ không hợp lệ (hoặc dùng số 0 để nhân bản bài đang phát).", ephemeral=True)
-    
-    target_song = q[index - 1]
+    if not target_query:
+        return await interaction.response.send_message("⚠️ Không tìm thấy thông tin bài hát để nhân bản.", ephemeral=True)
+
     await interaction.response.defer()
     try:
         for _ in range(amount):
-            duplicated_player = await YTDLSource.create_source(target_song.url, loop=bot.loop, volume=current_vol)
-            q.insert(index, duplicated_player)
-        await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_song.title}** thêm **{amount} lần** vào hàng đợi!")
+            duplicated_player = await YTDLSource.create_source(target_query, loop=bot.loop, volume=current_vol)
+            if index == 0:
+                q.insert(0, duplicated_player)
+            else:
+                q.insert(index, duplicated_player)
+        await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
 
