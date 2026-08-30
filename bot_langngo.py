@@ -11,18 +11,18 @@ class MusicBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
 
-    async def setup_hook(self):
-        # Kết nối Lavalink Node
-        host = os.getenv("LAVALINK_HOST", "free-lava.heavencloud.in")
-        port = int(os.getenv("LAVALINK_PORT", 4000))
-        password = os.getenv("LAVALINK_PASS", "heavencloud.in")
+  async def setup_hook(self):
+        # Kết nối Lavalink Node công cộng mới (Dùng SSL/HTTPS cực kỳ ổn định)
+        host = os.getenv("LAVALINK_HOST", "lava-v3.ajiezy.de")
+        port = int(os.getenv("LAVALINK_PORT", 443))
+        password = os.getenv("LAVALINK_PASS", "https://dsc.gg/ajiezy")
 
-        node = wavelink.Node(uri=f"http://{host}:{port}", password=password)
+        node = wavelink.Node(uri=f"https://{host}:{port}", password=password)
         await wavelink.Pool.connect(nodes=[node], client=self)
         
         # Đồng bộ Slash Commands với Discord
         await self.tree.sync()
-        print("Đã đồng bộ Slash Commands!")
+        print("Đã đồng bộ Slash Commands thành công!")
 
 bot = MusicBot()
 
