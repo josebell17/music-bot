@@ -190,5 +190,5 @@ async def stop(interaction: discord.Interaction):
         await interaction.response.send_message("Bot không ở trong phòng thoại.", ephemeral=True)
 
 # Lấy token từ biến môi trường của Render (hoặc thay thế trực tiếp bằng token của bạn)
-TOKEN = os.getenv("DISCORD_TOKEN", "DÁN_TOKEN_CỦA_BẠN_VÀO_ĐÂY")
+TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
