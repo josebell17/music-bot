@@ -17,19 +17,19 @@ class MusicBot(commands.Bot):
 
 bot = MusicBot()
 
-# --- BẮT ĐẦU ĐOẠN CODE THÊM MỚI ---
-# Tự động ghi chuỗi cookie từ Render Environment Variable ra file tạm /tmp/cookies.txt
 COOKIE_PATH = '/tmp/cookies.txt'
 cookie_data = os.getenv('YOUTUBE_COOKIE')
 
 if cookie_data:
+    # Chuyển đổi các ký tự \n bị mã hóa thành dấu xuống dòng chuẩn
+    cookie_data = cookie_data.replace('\\n', '\n')
+    
     with open(COOKIE_PATH, 'w', encoding='utf-8') as f:
         f.write(cookie_data)
-    print("--> [COOKIE]: Đã tạo file cookie từ biến YOUTUBE_COOKIE!")
+    print("--> [COOKIE]: Đã xử lý và ghi file cookie thành công!")
 else:
     COOKIE_PATH = None
     print("--> [COOKIE]: Không tìm thấy biến YOUTUBE_COOKIE!")
-# --- KẾT THÚC ĐOẠN CODE THÊM MỚI ---
 
 YTDL_OPTIONS = {
     'default_search': 'ytsearch',
@@ -45,11 +45,12 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
-    'cookiefile': COOKIE_PATH,
+    'cookiefile': COOKIE_PATH if (COOKIE_PATH and os.path.exists(COOKIE_PATH)) else None,
     
+    # Dùng client android_vr để không bị chặn IP Datacenter khi có cookie
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'mweb']
+            'player_client': ['android_vr', 'web']
         }
     }
 }
