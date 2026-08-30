@@ -17,9 +17,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 queues = defaultdict(list)
 volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
+# Lưu cấu trúc bộ sưu tập dưới dạng dict chứa thông tin chi tiết: {title, stream_url}
 user_collections = defaultdict(list)
 
-# Cấu hình yt_dlp tối ưu hóa tốc độ trích xuất
+# Cấu hình yt_dlp tối ưu tốc độ và tiết kiệm tài nguyên
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -31,10 +32,10 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
-# Tối ưu hóa bộ đệm FFmpeg nhẹ nhất có thể để tiết kiệm vCPU
+# Tối ưu hóa bộ đệm FFmpeg cực gọn để tận dụng hoàn hảo giới hạn RAM máy chủ
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -probesize 32K -analyzeduration 0 -nostdin',
-    'options': '-vn -b:a 64k -threads 1',
+    'options': '-vn -b:a 96k -threads 1',
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -45,7 +46,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
         self.title = data.get('title', 'Unknown Title')
         self.url = data.get('url', '')
-        # Lưu thẳng direct stream URL để tái sử dụng tức thì, không cần search lại
         self.stream_url = data.get('url', '')
         self.original_query = data.get('webpage_url') or data.get('title')
 
@@ -53,13 +53,13 @@ class YTDLSource(discord.PCMVolumeTransformer):
     async def create_source(cls, search: str, *, loop=None, volume=0.5, cached_stream_url=None):
         loop = loop or asyncio.get_event_loop()
         
-        # Nếu tái sử dụng từ bản nhân bản có sẵn stream_url, bỏ qua hoàn toàn bước gọi yt_dlp
+        # Tái sử dụng trực tiếp luồng URL đã cache, loại bỏ hoàn toàn quá trình gọi yt_dlp search tốn CPU
         if cached_stream_url:
             try:
                 audio_source = discord.FFmpegPCMAudio(cached_stream_url, **FFMPEG_OPTIONS)
                 return cls(audio_source, data={'title': search, 'url': cached_stream_url}, volume=volume)
             except Exception:
-                pass # Fallback nếu link stream hết hạn
+                pass
 
         query = search if search.startswith("http") else f"scsearch:{search}"
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
@@ -135,9 +135,11 @@ class MusicControlView(discord.ui.View):
         current = getattr(self.ctx, 'current_player', None)
         if not current:
             return await interaction.response.send_message("⚠️ Không có bài hát nào đang hoạt động.", ephemeral=True)
-        if current.title not in user_collections[user_id]:
-            user_collections[user_id].append(current.title)
-            await interaction.response.send_message(f"✨ Đã lưu: **{current.title}**", ephemeral=True)
+        
+        favs = user_collections[user_id]
+        if not any(song['title'] == current.title for song in favs):
+            favs.append({'title': current.title, 'stream_url': current.stream_url})
+            await interaction.response.send_message(f"✨ Đã lưu kèm tối ưu link: **{current.title}**", ephemeral=True)
         else:
             await interaction.response.send_message("💠 Bài hát đã có trong bộ sưu tập.", ephemeral=True)
 
@@ -158,7 +160,7 @@ class RemoveCollectionModal(discord.ui.Modal, title="🗑️ Xóa Bài Hát Kh�
             idx = int(self.index_str.value)
             if 1 <= idx <= len(favs):
                 removed = favs.pop(idx - 1)
-                await interaction.response.send_message(f"🗑️ Đã xóa **{removed}**!", ephemeral=True)
+                await interaction.response.send_message(f"🗑️ Đã xóa **{removed['title']}**!", ephemeral=True)
             else:
                 await interaction.response.send_message("⚠️ Số thứ tự không hợp lệ.", ephemeral=True)
         except ValueError:
@@ -175,7 +177,7 @@ class ReorderCollectionModal(discord.ui.Modal, title="🔄 Sắp Xếp Lại B�
             if 1 <= f <= len(favs) and 1 <= t <= len(favs):
                 song = favs.pop(f - 1)
                 favs.insert(t - 1, song)
-                await interaction.response.send_message(f"🔄 Đã dịch chuyển **{song}** sang vị trí `{t}`!", ephemeral=True)
+                await interaction.response.send_message(f"🔄 Đã dịch chuyển **{song['title']}** sang vị trí `{t}`!", ephemeral=True)
             else:
                 await interaction.response.send_message("⚠️ Vị trí vượt quá giới hạn.", ephemeral=True)
         except ValueError:
@@ -192,9 +194,11 @@ class CollectionView(discord.ui.View):
         current = getattr(ctx, 'current_player', None)
         if not current:
             return await interaction.response.send_message("⚠️ Không có bài hát đang phát!", ephemeral=True)
-        if current.title not in user_collections[self.user_id]:
-            user_collections[self.user_id].append(current.title)
-            await interaction.response.send_message(f"✨ Đã lưu: **{current.title}**", ephemeral=True)
+        
+        favs = user_collections[self.user_id]
+        if not any(song['title'] == current.title for song in favs):
+            favs.append({'title': current.title, 'stream_url': current.stream_url})
+            await interaction.response.send_message(f"✨ Đã lưu tối ưu: **{current.title}**", ephemeral=True)
         else:
             await interaction.response.send_message("💠 Đã có sẵn trong kho.", ephemeral=True)
 
@@ -203,7 +207,7 @@ class CollectionView(discord.ui.View):
         favs = user_collections[self.user_id]
         if not favs:
             return await interaction.response.send_message("📭 Kho lưu trữ trống.", ephemeral=True)
-        fav_list = "\n".join([f"` ⟡ {i+1}. ` {song}" for i, song in enumerate(favs[:10])])
+        fav_list = "\n".join([f"` ⟡ {i+1}. ` {song['title']}" for i, song in enumerate(favs[:10])])
         embed = discord.Embed(title=f"🔮 Kho Của — {interaction.user.name}", description=fav_list, color=discord.Color.from_rgb(88, 24, 131))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -258,7 +262,7 @@ async def play(interaction: discord.Interaction, search: str):
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi tải dữ liệu: {e}")
 
-@bot.tree.command(name="myfavorite", description="🖤 Phát toàn bộ kho lưu trữ cá nhân (tối đa 10 bài)")
+@bot.tree.command(name="myfavorite", description="🖤 Phát toàn bộ kho lưu trữ cá nhân (tối đa 10 bài, tải cực nhanh)")
 async def myfavorite(interaction: discord.Interaction):
     if not interaction.user.voice:
         return await interaction.response.send_message("🥀 Vui lòng vào kênh thoại trước.", ephemeral=True)
@@ -283,12 +287,18 @@ async def myfavorite(interaction: discord.Interaction):
     current_vol = volumes[guild_id]
     added, first_player = 0, None
 
-    for song_name in favs:
+    for item in favs:
         if len(queues[guild_id]) >= 10:
             break
             
         try:
-            player = await YTDLSource.create_source(song_name, loop=bot.loop, volume=current_vol)
+            # Tận dụng tối đa cached stream_url từ bộ sưu tập, không tốn vCPU tìm kiếm
+            player = await YTDLSource.create_source(
+                item['title'], 
+                loop=bot.loop, 
+                volume=current_vol, 
+                cached_stream_url=item.get('stream_url')
+            )
             if not first_player and not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
                 first_player = player
                 ctx.current_player = player
@@ -300,12 +310,12 @@ async def myfavorite(interaction: discord.Interaction):
 
     if first_player:
         ctx.voice_client.play(first_player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
-        embed = discord.Embed(title="🖤 Đang Phát Kho Lưu Trữ", description=f"Đã nạp thành công **{added} bài** vào hàng đợi.", color=discord.Color.from_rgb(88, 24, 131))
+        embed = discord.Embed(title="🖤 Đang Phát Kho Lưu Trữ", description=f"Đã nạp siêu tốc **{added} bài** từ bộ sưu tập vào hàng đợi.", color=discord.Color.from_rgb(88, 24, 131))
         await interaction.followup.send(embed=embed, view=MusicControlView(ctx))
     elif added > 0:
         await interaction.followup.send(f"🖤 Đã nạp thêm **{added} bài** từ kho vào hàng đợi.")
     else:
-        await interaction.followup.send("⚠️ Không thể khởi tạo danh sách.", ephemeral=True)
+        await interaction.followup.send("⚠️ Không thể khởi tạo danh sách từ kho.", ephemeral=True)
 
 @bot.tree.command(name="queue", description="📜 Xem danh sách chờ (Tối đa 10 bài)")
 async def queue(interaction: discord.Interaction):
@@ -365,7 +375,6 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     try:
         cached_url = getattr(target_source, 'stream_url', None)
         for _ in range(amount):
-            # Nhân bản trực tiếp từ luồng có sẵn cực nhanh, không gọi lại yt_dlp search
             duplicated_player = await YTDLSource.create_source(
                 target_title, 
                 loop=bot.loop, 
@@ -437,7 +446,7 @@ async def help_cmd(interaction: discord.Interaction):
         color=discord.Color.from_rgb(88, 24, 131)
     )
     embed.add_field(name="🔮 `/play [tên/link]`", value="Phát nhạc từ SoundCloud (Hàng đợi tối đa 10 bài).", inline=False)
-    embed.add_field(name="🖤 `/myfavorite`", value="Phát kho lưu trữ cá nhân (tối đa 10 bài).", inline=False)
+    embed.add_field(name="🖤 `/myfavorite`", value="Phát siêu tốc kho lưu trữ cá nhân (tối đa 10 bài).", inline=False)
     embed.add_field(name="📜 `/queue`", value="Xem danh sách chờ hiện tại.", inline=False)
     embed.add_field(name="🗑️ `/remove [vị trí] [số lượng]`", value="Xóa bài hát khỏi hàng đợi.", inline=False)
     embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhập `0` nhân bản bài đang nghe, hoặc số thứ tự bài chờ (Tối đa 5 lần).", inline=False)
@@ -445,7 +454,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân.", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
     embed.add_field(name="🌙 `/sleep [phút]`", value="Hẹn giờ ngắt bot tự động.", inline=False)
-    embed.set_footer(text="⚡ Fully Optimized for Render Free Tier", icon_url=interaction.user.display_avatar.url)
+    embed.set_footer(text="⚡ Optimized for 512MB RAM & Low vCPU", icon_url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
