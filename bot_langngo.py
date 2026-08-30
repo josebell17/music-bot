@@ -19,7 +19,7 @@ volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
 user_collections = defaultdict(list)
 
-# Cấu hình yt_dlp tối ưu hiệu năng
+# Cấu hình yt_dlp tối ưu hóa tốc độ trích xuất
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -31,10 +31,10 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
-# Tối ưu hóa bộ đệm FFmpeg chống nghẽn mạng và giảm tải CPU tối đa
+# Tối ưu hóa bộ đệm FFmpeg nhẹ nhất có thể để tiết kiệm vCPU
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -probesize 64K -analyzeduration 0 -nostdin',
-    'options': '-vn -b:a 96k -threads 1',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -probesize 32K -analyzeduration 0 -nostdin',
+    'options': '-vn -b:a 64k -threads 1',
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -45,12 +45,22 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
         self.title = data.get('title', 'Unknown Title')
         self.url = data.get('url', '')
-        # Lưu trữ webpage_url hoặc fallback về title sạch để tìm kiếm lại cực kỳ an toàn
+        # Lưu thẳng direct stream URL để tái sử dụng tức thì, không cần search lại
+        self.stream_url = data.get('url', '')
         self.original_query = data.get('webpage_url') or data.get('title')
 
     @classmethod
-    async def create_source(cls, search: str, *, loop=None, volume=0.5):
+    async def create_source(cls, search: str, *, loop=None, volume=0.5, cached_stream_url=None):
         loop = loop or asyncio.get_event_loop()
+        
+        # Nếu tái sử dụng từ bản nhân bản có sẵn stream_url, bỏ qua hoàn toàn bước gọi yt_dlp
+        if cached_stream_url:
+            try:
+                audio_source = discord.FFmpegPCMAudio(cached_stream_url, **FFMPEG_OPTIONS)
+                return cls(audio_source, data={'title': search, 'url': cached_stream_url}, volume=volume)
+            except Exception:
+                pass # Fallback nếu link stream hết hạn
+
         query = search if search.startswith("http") else f"scsearch:{search}"
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
         
@@ -60,10 +70,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
             raise Exception("Không tìm thấy kết quả phù hợp trên SoundCloud!")
 
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
-        instance = cls(audio_source, data=data, volume=volume)
-        if data.get('webpage_url'):
-            instance.original_query = data.get('webpage_url')
-        return instance
+        return cls(audio_source, data=data, volume=volume)
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -336,34 +343,40 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if len(q) + amount > 10:
         return await interaction.response.send_message(f"⚠️ Vượt quá giới hạn hàng đợi! Tối đa 10 bài (hiện đang có {len(q)} bài).", ephemeral=True)
     
-    target_query = None
-    target_title = None
+    target_source = None
+    target_title = "Bài hát"
 
     if index == 0:
         if interaction.guild.voice_client and interaction.guild.voice_client.source:
-            source_obj = interaction.guild.voice_client.source
-            target_query = getattr(source_obj, 'original_query', None) or getattr(source_obj, 'title', None)
-            target_title = getattr(source_obj, 'title', "Bài hát đang phát")
+            target_source = interaction.guild.voice_client.source
+            target_title = getattr(target_source, 'title', "Bài đang phát")
         else:
             return await interaction.response.send_message("⚠️ Hiện tại không có bài hát nào đang phát.", ephemeral=True)
     else:
         if not q or not (1 <= index <= len(q)):
             return await interaction.response.send_message("⚠️ Số thứ tự trong hàng đợi không hợp lệ.", ephemeral=True)
-        target_song = q[index - 1]
-        target_query = getattr(target_song, 'original_query', None) or target_song.title
-        target_title = target_song.title
+        target_source = q[index - 1]
+        target_title = target_source.title
 
-    if not target_query:
-        return await interaction.response.send_message("⚠️ Không tìm thấy thông tin định danh bài hát để nhân bản.", ephemeral=True)
+    if not target_source:
+        return await interaction.response.send_message("⚠️ Không tìm thấy nguồn dữ liệu để nhân bản.", ephemeral=True)
 
     await interaction.response.defer()
     try:
+        cached_url = getattr(target_source, 'stream_url', None)
         for _ in range(amount):
-            duplicated_player = await YTDLSource.create_source(target_query, loop=bot.loop, volume=current_vol)
+            # Nhân bản trực tiếp từ luồng có sẵn cực nhanh, không gọi lại yt_dlp search
+            duplicated_player = await YTDLSource.create_source(
+                target_title, 
+                loop=bot.loop, 
+                volume=current_vol, 
+                cached_stream_url=cached_url
+            )
             if index == 0:
                 q.insert(0, duplicated_player)
             else:
                 q.insert(index, duplicated_player)
+                
         await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi khi nhân bản: {e}")
@@ -432,7 +445,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân.", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
     embed.add_field(name="🌙 `/sleep [phút]`", value="Hẹn giờ ngắt bot tự động.", inline=False)
-    embed.set_footer(text="⚡ Render Optimized • Music langngo", icon_url=interaction.user.display_avatar.url)
+    embed.set_footer(text="⚡ Fully Optimized for Render Free Tier", icon_url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
