@@ -31,7 +31,7 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     
     # Định tuyến qua Proxy (Xóa dòng extractor_args cũ đi)
-    'proxy': 'http://user:password@proxy_address:port',
+    'proxy': 'http://user:password@proxy_address',
 }
 
 FFMPEG_OPTIONS = {
