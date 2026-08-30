@@ -36,9 +36,10 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
+# Tối ưu hóa bộ đệm FFmpeg chuẩn SCL để loại bỏ hoàn toàn hiện tượng khựng/xé tiếng
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-    'options': '-vn',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -buffer_size 10240k -nostdin',
+    'options': '-vn -b:a 128k',
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
@@ -125,8 +126,10 @@ class MusicControlView(discord.ui.View):
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji="▶️")
     async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.ctx.voice_client and self.ctx.voice_client.is_paused():
+            await interaction.response.defer(ephemeral=True)
+            await asyncio.sleep(0.05) # Chờ đệm vi mô chống giật
             self.ctx.voice_client.resume()
-            await interaction.response.send_message("🔮 Tiếp tục phát.", ephemeral=True)
+            await interaction.followup.send("🔮 Tiếp tục phát.", ephemeral=True)
         else:
             await interaction.response.send_message("⚠️ Nhạc không ở trạng thái dừng.", ephemeral=True)
 
@@ -355,7 +358,7 @@ async def remove(interaction: discord.Interaction, index: int, count: int = 1):
     titles = ", ".join([item.title for item in removed_items])
     await interaction.response.send_message(f"🗑️ Đã xóa {count} bài từ vị trí `{index}`: **{titles}**")
 
-@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài hát (Tự động chạy tiếp mượt mà)")
+@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài hát (Tự động chạy tiếp mượt mà như SCL)")
 @discord.app_commands.describe(index="Nhập 0 cho bài đang phát, hoặc số thứ tự trong /queue", amount="Số bản sao muốn thêm (Tối đa 5)")
 async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     guild_id = interaction.guild.id
@@ -392,7 +395,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if interaction.guild.voice_client and interaction.guild.voice_client.is_playing():
         interaction.guild.voice_client.pause()
         was_playing = True
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.15) # Tăng nhẹ độ trễ an toàn khi pause để FFmpeg đóng băng buffer sạch sẽ
 
     try:
         cached_url = getattr(target_source, 'stream_url', None)
@@ -413,7 +416,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
         await interaction.edit_original_response(content=f"⚠️ Lỗi khi nhân bản: {e}")
     finally:
         if interaction.guild.voice_client and was_playing:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.15) # Chờ nạp mượt buffer mạng trước khi tự động chạy tiếp
             interaction.guild.voice_client.resume()
 
 @bot.tree.command(name="move", description="🔄 Đổi vị trí bài hát trong hàng đợi")
@@ -475,7 +478,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🖤 `/myfavorite`", value="Tải siêu tốc từ bộ nhớ đệm kho cá nhân.", inline=False)
     embed.add_field(name="📜 `/queue`", value="Xem danh sách chờ hiện tại.", inline=False)
     embed.add_field(name="🗑️ `/remove [vị trí] [số lượng]`", value="Xóa bài hát khỏi hàng đợi.", inline=False)
-    embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhân bản chuẩn workstation, tự resume không xé tiếng.", inline=False)
+    embed.add_field(name="🧬 `/duplicate [0 / vị trí] [số lượng]`", value="Nhân bản chuẩn SCL, tự resume cực mượt.", inline=False)
     embed.add_field(name="🔄 `/move [cũ] [mới]`", value="Đổi vị trí bài hát trong hàng đợi.", inline=False)
     embed.add_field(name="💼 `/collection`", value="Quản lý kho cá nhân (Tối đa 10 bài).", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
