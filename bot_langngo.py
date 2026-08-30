@@ -18,8 +18,8 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # 1. Cho phép lấy mọi luồng âm thanh/video khả thi để không dính lỗi "Requested format"
-    'format': 'ba/ba*/bestaudio/best/b',
+    # 1. Định dạng linh hoạt lấy mọi nguồn âm thanh khả thi
+    'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -34,10 +34,10 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # 2. Bắt buộc xoay vòng các Client di động/TV để qua mặt cơ chế quét IP Datacenter
+    # 2. Bắt buộc dùng Client TV HTML5 để bypass triệt để lỗi "Requested format" và "Sign in"
     'extractor_args': {
         'youtube': {
-            'player_client': ['android', 'ios', 'mweb', 'tv_embedded']
+            'player_client': ['tv', 'web_embedded']
         }
     }
 }
