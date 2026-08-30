@@ -20,7 +20,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 queues = defaultdict(list)
 volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
-user_collections = defaultdict(list) # Bộ sưu tập bài hát yêu thích cá nhân
+user_collections = defaultdict(list)
 
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
@@ -62,19 +62,19 @@ class YTDLSource(discord.PCMVolumeTransformer):
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
         return cls(audio_source, data=data, volume=volume)
 
-# Fix triệt để lỗi "Tải lựa chọn thất bại" cho Autocomplete
+# Autocomplete chuẩn chỉnh giống Google Chrome / SoundCloud: Trả về danh sách bài hát thực tế để bấm chọn
 async def search_soundcloud(current: str):
-    if not current or len(current.strip()) == 0:
-        return [discord.app_commands.Choice(name="🔥 Gợi ý: Lofi Chill / Gaming Music", value="Lofi Chill")]
+    if not current or len(current.strip()) < 2:
+        return [discord.app_commands.Choice(name="🔥 Gợi ý: Gõ tên bài hát hoặc nghệ sĩ...", value="Lofi Chill")]
     try:
         loop = asyncio.get_event_loop()
-        # Chạy ngầm tìm kiếm an toàn, bọc try-except để không bao giờ văng lỗi đỏ
+        # Truy vấn trực tiếp scsearch để lấy danh sách bài hát thật khớp với từ khóa
         info = await asyncio.wait_for(
             loop.run_in_executor(
                 None, 
-                lambda: ytdl.extract_info(f"scsearch5:{current}", download=False)
+                lambda: ytdl.extract_info(f"scsearch10:{current}", download=False)
             ),
-            timeout=2.5
+            timeout=3.0
         )
         entries = info.get('entries', []) if info else []
         results = []
@@ -84,14 +84,14 @@ async def search_soundcloud(current: str):
             if title and webpage_url:
                 if len(title) > 100:
                     title = title[:97] + "..."
+                # Hiển thị tên bài hát rõ ràng trong menu thả xuống
                 results.append(discord.app_commands.Choice(name=title, value=webpage_url))
         
         if not results:
-            results.append(discord.app_commands.Choice(name=f"🔍 Tìm kiếm nhanh: {current}", value=current))
+            results.append(discord.app_commands.Choice(name=f"🔍 Tìm kiếm: {current}", value=current))
         return results[:25]
     except Exception:
-        # Fallback an toàn tuyệt đối khi mạng hoặc SoundCloud lỗi
-        return [discord.app_commands.Choice(name=f"🎵 Phát từ khóa: {current}", value=current)]
+        return [discord.app_commands.Choice(name=f"🎵 Phát nhanh: {current}", value=current)]
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -168,7 +168,6 @@ class MusicControlView(discord.ui.View):
             await self.ctx.voice_client.disconnect()
             await interaction.response.send_message("⏹️ Đã dừng nhạc và rời phòng thoại.", ephemeral=True)
 
-# Giao diện quản lý Bộ sưu tập thân thiện dạng Nút bấm
 class CollectionView(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=60)
@@ -195,7 +194,6 @@ class CollectionView(discord.ui.View):
         embed = discord.Embed(title=f"🎯 Bộ Sưu Tập Của {interaction.user.name}", description=fav_list, color=discord.Color.from_rgb(0, 255, 128))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# Web Server duy trì 24/7 trên Render
 async def handle(request):
     return web.Response(text="Music langngo Bot is active 24/7!")
 
@@ -217,7 +215,6 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Lỗi đồng bộ: {e}")
 
-# Lệnh /play
 @bot.tree.command(name="play", description="🎮 Tìm kiếm real-time và phát nhạc cực chiến cho dân chơi")
 @discord.app_commands.describe(search="Nhập tên bài hát hoặc dán link SoundCloud")
 async def play(interaction: discord.Interaction, search: str):
@@ -257,7 +254,6 @@ async def play(interaction: discord.Interaction, search: str):
 async def play_autocomplete(interaction: discord.Interaction, current: str):
     return await search_soundcloud(current)
 
-# Lệnh quản lý hàng đợi
 @bot.tree.command(name="queue", description="📜 Kiểm tra danh sách bài đang chờ phát")
 async def queue(interaction: discord.Interaction):
     guild_id = interaction.guild.id
@@ -294,7 +290,6 @@ async def move(interaction: discord.Interaction, from_pos: int, to_pos: int):
     q.insert(to_pos - 1, song)
     await interaction.response.send_message(f"🔄 Đã bốc bài **{song.title}** từ vị trí `{from_pos}` sang `{to_pos}`.")
 
-# Lệnh Bộ sưu tập cá nhân siêu dễ dùng bằng nút bấm
 @bot.tree.command(name="collection", description="🎯 Mở bảng quản lý bộ sưu tập nhạc yêu thích cá nhân")
 async def collection(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -304,7 +299,6 @@ async def collection(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=CollectionView(interaction.user.id), ephemeral=True)
 
-# Lệnh âm lượng
 @bot.tree.command(name="volume", description="🔊 Tăng giảm âm lượng bot (1 - 100)")
 @discord.app_commands.describe(level="Mức âm lượng")
 async def volume(interaction: discord.Interaction, level: int):
@@ -316,7 +310,6 @@ async def volume(interaction: discord.Interaction, level: int):
         interaction.guild.voice_client.source.volume = level / 100.0
     await interaction.response.send_message(f"🔊 Đã kéo âm lượng lên mức: **{level}%** ⚡")
 
-# Lệnh hẹn giờ
 @bot.tree.command(name="sleep", description="⏰ Hẹn giờ tự động sập nguồn bot sau số phút")
 @discord.app_commands.describe(minutes="Số phút")
 async def sleep(interaction: discord.Interaction, minutes: int):
@@ -338,7 +331,6 @@ async def sleep(interaction: discord.Interaction, minutes: int):
     sleep_tasks[guild_id] = bot.loop.create_task(timer())
     await interaction.response.send_message(f"⏰ Đã hẹn giờ tắt nhạc sau **{minutes} phút**.")
 
-# Lệnh Help giao diện mới "Music langngo" cực ngầu
 @bot.tree.command(name="help", description="🚀 Hiển thị bảng điều khiển & hướng dẫn hệ thống Music langngo")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
