@@ -19,7 +19,7 @@ volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
 user_collections = defaultdict(list)
 
-# Cấu hình yt_dlp tối ưu trích xuất nhanh
+# Cấu hình yt_dlp tối ưu hiệu năng
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -45,8 +45,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.data = data
         self.title = data.get('title', 'Unknown Title')
         self.url = data.get('url', '')
-        # Lưu trữ webpage_url hoặc url gốc để cơ chế nhân bản gọi trực tiếp không cần qua bước tìm kiếm
-        self.webpage_url = data.get('webpage_url') or data.get('original_url') or self.url
+        # Lưu trữ webpage_url hoặc fallback về title sạch để tìm kiếm lại cực kỳ an toàn
+        self.original_query = data.get('webpage_url') or data.get('title')
 
     @classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5):
@@ -57,10 +57,13 @@ class YTDLSource(discord.PCMVolumeTransformer):
         if 'entries' in data and data['entries']:
             data = data['entries'][0]
         else:
-            raise Exception("Không tìm thấy kết quả phù hợp!")
+            raise Exception("Không tìm thấy kết quả phù hợp trên SoundCloud!")
 
         audio_source = discord.FFmpegPCMAudio(data['url'], **FFMPEG_OPTIONS)
-        return cls(audio_source, data=data, volume=volume)
+        instance = cls(audio_source, data=data, volume=volume)
+        if data.get('webpage_url'):
+            instance.original_query = data.get('webpage_url')
+        return instance
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -328,7 +331,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     current_vol = volumes[guild_id]
     
     if not (1 <= amount <= 5):
-        return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ cho phép từ 1 đến 5.", ephemeral=True)
+        return await interaction.response.send_message("⚠️ Số lượng nhân bản mỗi lần chỉ từ 1 đến 5.", ephemeral=True)
         
     if len(q) + amount > 10:
         return await interaction.response.send_message(f"⚠️ Vượt quá giới hạn hàng đợi! Tối đa 10 bài (hiện đang có {len(q)} bài).", ephemeral=True)
@@ -339,7 +342,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if index == 0:
         if interaction.guild.voice_client and interaction.guild.voice_client.source:
             source_obj = interaction.guild.voice_client.source
-            target_query = getattr(source_obj, 'webpage_url', None) or getattr(source_obj, 'url', None)
+            target_query = getattr(source_obj, 'original_query', None) or getattr(source_obj, 'title', None)
             target_title = getattr(source_obj, 'title', "Bài hát đang phát")
         else:
             return await interaction.response.send_message("⚠️ Hiện tại không có bài hát nào đang phát.", ephemeral=True)
@@ -347,7 +350,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
         if not q or not (1 <= index <= len(q)):
             return await interaction.response.send_message("⚠️ Số thứ tự trong hàng đợi không hợp lệ.", ephemeral=True)
         target_song = q[index - 1]
-        target_query = getattr(target_song, 'webpage_url', None) or target_song.url
+        target_query = getattr(target_song, 'original_query', None) or target_song.title
         target_title = target_song.title
 
     if not target_query:
@@ -379,8 +382,9 @@ async def move(interaction: discord.Interaction, from_pos: int, to_pos: int):
 
 @bot.tree.command(name="collection", description="💼 Quản lý kho lưu trữ cá nhân")
 async def collection(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(title="🌌 Kho Lưu Trữ Cá Nhân", description="Sử dụng bảng điều khiển bên dưới:", color=discord.Color.from_rgb(88, 24, 131))
-    await interaction.response.send_message(embed=embed, view=CollectionView(interaction.user.id), ephemeral=True)
+    await interaction.followup.send(embed=embed, view=CollectionView(interaction.user.id), ephemeral=True)
 
 @bot.tree.command(name="volume", description="🔊 Chỉnh âm lượng (1 - 100)")
 @discord.app_commands.describe(level="Mức âm lượng")
