@@ -18,7 +18,6 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # 1. Trở lại tiền tố tìm kiếm mặc định chuẩn của yt-dlp
     'default_search': 'ytsearch',
     'format': 'bestaudio/best',
     'extractaudio': True,
@@ -34,10 +33,10 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # 2. Bắt buộc dùng client YouTube Music Android & Mobile Web
+    # Kết hợp các client có độ ổn định cao nhất hiện tại trên IP Server
     'extractor_args': {
         'youtube': {
-            'player_client': ['android_music', 'mweb']
+            'player_client': ['tv_embedded', 'ios', 'web']
         }
     }
 }
