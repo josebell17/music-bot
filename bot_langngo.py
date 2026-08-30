@@ -27,18 +27,11 @@ YTDL_OPTIONS = {
     'noplaylist': True,
     'nocheckcertificate': True,
     'ignoreerrors': False,
-    'logtostderr': False,
     'quiet': True,
-    'no_warnings': True,
     'source_address': '0.0.0.0',
     
-    # Bypass chặn IP Render bằng cách gọi qua Invidious/Piped instance
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['tv_embedded', 'android', 'web_embedded'],
-            'skip': ['webpage', 'configs']
-        }
-    }
+    # Định tuyến qua Proxy (Xóa dòng extractor_args cũ đi)
+    'proxy': 'http://user:password@proxy_address:port',
 }
 
 FFMPEG_OPTIONS = {
