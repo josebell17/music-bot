@@ -19,14 +19,26 @@ bot = MusicBot()
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
     'format': 'bestaudio/best',
-    'noplaylist': False,  # Hỗ trợ nhận cả link playlist YouTube
+    'extractaudio': True,
+    'audioformat': 'mp3',
+    'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'restrictfilenames': True,
+    'noplaylist': True,
+    'nocheckcertificate': True,
+    'ignoreerrors': False,
+    'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'ytsearch',
-    'nocheckcertificate': True,
+    'default_search': 'auto',
     'source_address': '0.0.0.0',
-    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'cookiefile': '/etc/secrets/cookies.txt'
+    'cookiefile': '/etc/secrets/cookies.txt',
+    
+    # THÊM DÒNG NÀY ĐỂ SỬA LỖI "The page needs to be reloaded":
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['web_embedded', 'default']
+        }
+    }
 }
 
 FFMPEG_OPTIONS = {
