@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import yt_dlp
 import asyncio
+import os
 
 class MusicBot(commands.Bot):
     def __init__(self):
@@ -16,11 +17,11 @@ class MusicBot(commands.Bot):
 
 bot = MusicBot()
 
-# Cấu hình yt-dlp & FFmpeg
+COOKIE_PATH = '/etc/secrets/cookies.txt'
+
 YTDL_OPTIONS = {
     'default_search': 'ytsearch',
-    # 1. Cho phép lấy bất kỳ luồng stream nào khả thi nhất
-    'format': 'ba/ba*/bestaudio/best/b',
+    'format': 'bestaudio/ba/b/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -32,14 +33,12 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
+    'cookiefile': COOKIE_PATH if os.path.exists(COOKIE_PATH) else None,
     
-    # Bỏ hẳn dòng 'cookiefile' vì IP Render dùng Cookie bị YouTube cờ đen
-    
-    # 2. Sử dụng Client TV/Android Embed để lấy stream trực tiếp không qua JS Challenge
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'android'],
-            'skip': ['hls', 'dash']
+            'player_client': ['ios', 'android'],
+            'skip': ['dash', 'hls']
         }
     }
 }
