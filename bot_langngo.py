@@ -17,10 +17,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 queues = defaultdict(list)
 volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
-# Lưu cấu trúc bộ sưu tập dưới dạng dict chứa thông tin chi tiết: {title, stream_url}
 user_collections = defaultdict(list)
 
-# Cấu hình yt_dlp tối ưu tốc độ và tiết kiệm tài nguyên
+# Cấu hình yt_dlp tối ưu tốc độ mạng và tiết kiệm tài nguyên
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
     'format': 'bestaudio/best',
@@ -32,9 +31,9 @@ YTDL_OPTIONS = {
     'no_warnings': True,
 }
 
-# Tối ưu hóa bộ đệm FFmpeg cực gọn để tận dụng hoàn hảo giới hạn RAM máy chủ
+# Tối ưu hóa bộ đệm FFmpeg cho 0.1 vCPU và băng thông mạng tối đa
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 2 -probesize 32K -analyzeduration 0 -nostdin',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -thread_queue_size 2048 -probesize 16K -analyzeduration 0 -nostdin',
     'options': '-vn -b:a 96k -threads 1',
 }
 
@@ -47,13 +46,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
         self.title = data.get('title', 'Unknown Title')
         self.url = data.get('url', '')
         self.stream_url = data.get('url', '')
-        self.original_query = data.get('webpage_url') or data.get('title')
 
     @classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5, cached_stream_url=None):
         loop = loop or asyncio.get_event_loop()
         
-        # Tái sử dụng trực tiếp luồng URL đã cache, loại bỏ hoàn toàn quá trình gọi yt_dlp search tốn CPU
+        # Tái sử dụng luồng URL đã cache, hoàn toàn không gọi yt_dlp search -> cực kỳ tiết kiệm vCPU
         if cached_stream_url:
             try:
                 audio_source = discord.FFmpegPCMAudio(cached_stream_url, **FFMPEG_OPTIONS)
@@ -262,7 +260,7 @@ async def play(interaction: discord.Interaction, search: str):
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi tải dữ liệu: {e}")
 
-@bot.tree.command(name="myfavorite", description="🖤 Phát toàn bộ kho lưu trữ cá nhân (tối đa 10 bài, tải cực nhanh)")
+@bot.tree.command(name="myfavorite", description="🖤 Phát toàn bộ kho lưu trữ cá nhân (tối đa 10 bài, tải siêu tốc)")
 async def myfavorite(interaction: discord.Interaction):
     if not interaction.user.voice:
         return await interaction.response.send_message("🥀 Vui lòng vào kênh thoại trước.", ephemeral=True)
@@ -292,7 +290,6 @@ async def myfavorite(interaction: discord.Interaction):
             break
             
         try:
-            # Tận dụng tối đa cached stream_url từ bộ sưu tập, không tốn vCPU tìm kiếm
             player = await YTDLSource.create_source(
                 item['title'], 
                 loop=bot.loop, 
@@ -305,6 +302,8 @@ async def myfavorite(interaction: discord.Interaction):
             else:
                 queues[guild_id].append(player)
             added += 1
+            # Thêm khoảng nghỉ cực nhỏ giúp vCPU 0.1 không bị nghẽn lệnh liên tục
+            await asyncio.sleep(0.05)
         except Exception:
             continue
 
@@ -385,6 +384,8 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
                 q.insert(0, duplicated_player)
             else:
                 q.insert(index, duplicated_player)
+            # Nghỉ cực ngắn giữa mỗi lần tạo bản sao để vCPU 0.1 không bị giật cục luồng phát chính
+            await asyncio.sleep(0.02)
                 
         await interaction.followup.send(f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
     except Exception as e:
@@ -454,7 +455,6 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="💼 `/collection`", value="Bảng quản lý bộ sưu tập cá nhân.", inline=False)
     embed.add_field(name="🔊 `/volume [1-100]`", value="Điều chỉnh âm lượng.", inline=False)
     embed.add_field(name="🌙 `/sleep [phút]`", value="Hẹn giờ ngắt bot tự động.", inline=False)
-    embed.set_footer(text="⚡ Optimized for 512MB RAM & Low vCPU", icon_url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
