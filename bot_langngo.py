@@ -17,9 +17,10 @@ class MusicBot(commands.Bot):
 
 bot = MusicBot()
 
+# Cấu hình phát nhạc qua SoundCloud (Không cần Cookie / Token)
 YTDL_OPTIONS = {
-    'default_search': 'ytsearch',
-    'format': 'bestaudio/ba/b/best',
+    'default_search': 'scsearch',
+    'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -31,10 +32,6 @@ YTDL_OPTIONS = {
     'quiet': True,
     'no_warnings': True,
     'source_address': '0.0.0.0',
-
-    # Yêu cầu ủy quyền thiết bị OAuth2
-    'username': 'oauth2',
-    'password': '',
 }
 
 FFMPEG_OPTIONS = {
