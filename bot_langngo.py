@@ -33,10 +33,10 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # THÊM DÒNG NÀY ĐỂ SỬA LỖI "The page needs to be reloaded":
+    # Chuyển client sang mweb và android để tránh lỗi reload page
     'extractor_args': {
         'youtube': {
-            'player_client': ['web_embedded', 'default']
+            'player_client': ['mweb', 'android', 'ios']
         }
     }
 }
