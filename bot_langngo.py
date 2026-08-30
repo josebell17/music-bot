@@ -18,8 +18,8 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # Thay đổi format sang cấu hình mở rộng linh hoạt nhất
-    'format': 'ba/ba*/bestaudio/best',
+    # Cho phép chọn bất kỳ định dạng nào có audio, nếu không có thì lấy video bất kỳ
+    'format': 'bestaudio/best/ba*/b',
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -34,17 +34,12 @@ YTDL_OPTIONS = {
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # Chỉ định client TvHTML5 & Web Embedded để lấy đúng stream nhạc chuẩn
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['tv_embedded', 'web_embedded', 'mweb']
-        }
-    }
+    # Bỏ hẳn player_client để yt-dlp tự động xoay xở fallback sang client phù hợp
 }
 
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn',
+    'options': '-vn', # -vn giúp bỏ qua luồng hình ảnh, chỉ phát luồng tiếng
 }
 
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
