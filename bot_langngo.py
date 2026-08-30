@@ -18,11 +18,10 @@ bot = MusicBot()
 
 # Cấu hình yt-dlp & FFmpeg
 YTDL_OPTIONS = {
-    # 1. Định dạng linh hoạt lấy mọi nguồn âm thanh khả thi
+    # 1. Bắt buộc yt-dlp lấy định dạng âm thanh bất kỳ khả thi nhất
     'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
-    'proxy': 'http://username:password@ip:port',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
     'restrictfilenames': True,
     'noplaylist': True,
@@ -31,14 +30,16 @@ YTDL_OPTIONS = {
     'logtostderr': False,
     'quiet': True,
     'no_warnings': True,
-    'default_search': 'auto',
+    
+    # 2. Đổi nguồn tìm kiếm mặc định sang YouTube Music (ytmsearch)
+    'default_search': 'ytmsearch',
     'source_address': '0.0.0.0',
     'cookiefile': '/etc/secrets/cookies.txt',
     
-    # 2. Bắt buộc dùng Client TV HTML5 để bypass triệt để lỗi "Requested format" và "Sign in"
+    # 3. Sử dụng iOS client của YouTube Music (ít bị kiểm tra IP nhất)
     'extractor_args': {
         'youtube': {
-            'player_client': ['tv', 'web_embedded']
+            'player_client': ['ios', 'mweb']
         }
     }
 }
