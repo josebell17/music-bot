@@ -95,42 +95,40 @@ class SelfHealingEngine:
         safe_query = SecuritySanitizer.sanitize_input(query)
         stream_url = cached_stream_url
         title = safe_query
-        force_fresh = False
 
-        if safe_query in FAILED_TRACKS_LEDGER and FAILED_TRACKS_LEDGER[safe_query] > 2:
-            force_fresh = True
+        # Ưu tiên lấy từ cache trước để chuyển bài mượt mà, không bị khựng
+        if stream_url:
+            return stream_url, title
 
-        if not stream_url or force_fresh:
-            if safe_query in URL_CACHE and not force_fresh:
-                stream_url, title = URL_CACHE[safe_query]
-            else:
-                search_query = safe_query if safe_query.startswith("http") else f"scsearch:{safe_query}"
-                
-                def extract_worker():
-                    try:
-                        data = ytdl.extract_info(search_query, download=False)
-                        if 'entries' in data and data['entries']:
-                            data = data['entries'][0]
-                        return data
-                    except Exception as ex:
-                        logger.error(f"[Extraction Error] Lỗi SoundCloud: {ex}")
-                        return None
-
+        if safe_query in URL_CACHE:
+            stream_url, title = URL_CACHE[safe_query]
+        else:
+            search_query = safe_query if safe_query.startswith("http") else f"scsearch:{safe_query}"
+            
+            def extract_worker():
                 try:
-                    data = await asyncio.wait_for(
-                        loop.run_in_executor(WORKSTATION_POOL, extract_worker), 
-                        timeout=12.0
-                    )
-                except asyncio.TimeoutError:
-                    data = None
+                    data = ytdl.extract_info(search_query, download=False)
+                    if 'entries' in data and data['entries']:
+                        data = data['entries'][0]
+                    return data
+                except Exception as ex:
+                    logger.error(f"[Extraction Error] Lỗi trích xuất: {ex}")
+                    return None
 
-                if data and 'url' in data:
-                    stream_url = data['url']
-                    title = data.get('title', safe_query)
-                    URL_CACHE[safe_query] = (stream_url, title)
-                else:
-                    FAILED_TRACKS_LEDGER[safe_query] = FAILED_TRACKS_LEDGER.get(safe_query, 0) + 1
-                    raise Exception("Không thể tìm thấy bài hát trên SoundCloud.")
+            try:
+                data = await asyncio.wait_for(
+                    loop.run_in_executor(WORKSTATION_POOL, extract_worker), 
+                    timeout=12.0
+                )
+            except asyncio.TimeoutError:
+                data = None
+
+            if data and 'url' in data:
+                stream_url = data['url']
+                title = data.get('title', safe_query)
+                URL_CACHE[safe_query] = (stream_url, title)
+            else:
+                raise Exception("Không thể tìm thấy hoặc trích xuất được bài hát này.")
 
         return stream_url, title
 
