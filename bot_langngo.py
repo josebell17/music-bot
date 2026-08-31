@@ -9,15 +9,30 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 import asyncio
 
-# Cấu hình ghi log chuyên nghiệp tiêu chuẩn hệ thống
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] [Workstation-Core] %(message)s')
+# [NÂNG CẤP] Cấu hình ghi log chuẩn Production với mã hóa UTF-8 chống lỗi font Tiếng Việt trên console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [Workstation-Core] %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+# Đảm bảo StreamHandler hỗ trợ UTF-8 nếu môi trường hỗ trợ
+for handler in logging.root.handlers:
+    if isinstance(handler, logging.StreamHandler):
+        try:
+            handler.stream.reconfigure(encoding='utf-8')
+        except AttributeError:
+            pass
+
 logger = logging.getLogger("WorkstationProductionBot")
 
+# [NÂNG CẤP] Thiết lập đầy đủ intents cần thiết cho bot âm nhạc chuyên nghiệp (bao gồm cả members và guild_messages)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+intents.guilds = True
+intents.guild_messages = True
 
 # [VÁ LỖI 1] Tăng worker pool lên 16 để xử lý song song mượt mà khi add nhiều bài
 WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
