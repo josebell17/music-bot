@@ -38,27 +38,6 @@ intents.guild_messages = True
 WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
 
 # Bộ nhớ đệm thông minh & Pre-fetch Cache
-URL_CACHE = {}        
-FAILED_TRACKS_LEDGER = defaultdict(int) 
-queues = defaultdict(list)
-volumes = defaultdict(lambda: 0.5)
-sleep_tasks = {}
-user_collections = defaultdict(list)
-user_consent_ledger = set() 
-guild_locks = defaultdict(asyncio.Lock) 
-
-class LimitedCache(OrderedDict):
-    def __init__(self, maxsize=150, *args, **kwargs):
-        self.maxsize = maxsize
-        super().__init__(*args, **kwargs)
-    def __setitem__(self, key, value):
-        if key in self:
-            self.move_to_end(key)
-        super().__setitem__(key, value)
-        if len(self) > self.maxsize:
-            oldest = next(iter(self))
-            del self[oldest]
-
 URL_CACHE = LimitedCache(maxsize=150)
 FAILED_TRACKS_LEDGER = defaultdict(int)
 queues = defaultdict(list)
@@ -67,6 +46,7 @@ sleep_tasks = {}
 user_collections = defaultdict(list)
 user_consent_ledger = set()
 guild_locks = defaultdict(asyncio.Lock)
+
 
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
