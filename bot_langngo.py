@@ -20,15 +20,15 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Đa luồng tối ưu hóa cho tác vụ bóc tách mạng
 WORKSTATION_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="Production_Worker")
 
-# Bộ nhớ đệm và cấu trúc dữ liệu lưu trữ
+# Bộ nhớ đệm thông minh & Pre-fetch Cache
 URL_CACHE = {}          
 FAILED_TRACKS_LEDGER = defaultdict(int) 
 queues = defaultdict(list)
 volumes = defaultdict(lambda: 0.5)
 sleep_tasks = {}
 user_collections = defaultdict(list)
-user_consent_ledger = set() # Tuân thủ GDPR/CCPA: Lưu vết quyền riêng tư
-guild_locks = defaultdict(asyncio.Lock) # Khóa đồng bộ độc quyền theo từng Guild
+user_consent_ledger = set() 
+guild_locks = defaultdict(asyncio.Lock) 
 
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
@@ -49,7 +49,6 @@ FFMPEG_OPTIONS = {
 ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
 class SecuritySanitizer:
-    """Bộ lọc bảo mật nâng cao: Khử trùng đầu vào chặn mã độc"""
     @staticmethod
     def sanitize_input(text: str) -> str:
         if not text:
@@ -59,7 +58,7 @@ class SecuritySanitizer:
 
 
 class SelfHealingEngine:
-    """Mô đun tự học và tự động sửa lỗi đường dẫn phát nhạc"""
+    """Mô đun tự học kết hợp Pre-fetch Cache tối ưu tốc độ"""
     @staticmethod
     async def resolve_stream(search: str, loop, cached_stream_url=None):
         safe_search = SecuritySanitizer.sanitize_input(search)
@@ -69,7 +68,7 @@ class SelfHealingEngine:
 
         if safe_search in FAILED_TRACKS_LEDGER and FAILED_TRACKS_LEDGER[safe_search] > 2:
             force_fresh = True
-            logger.warning(f"[Self-Healing] Từ khóa '{safe_search}' vượt ngưỡng lỗi. Buộc làm mới đường dẫn tuyệt đối.")
+            logger.warning(f"[Self-Healing] Từ khóa '{safe_search}' vượt ngưỡng lỗi. Làm mới luồng.")
 
         if not stream_url or force_fresh:
             if safe_search in URL_CACHE and not force_fresh:
@@ -84,7 +83,7 @@ class SelfHealingEngine:
                             data = data['entries'][0]
                         return data
                     except Exception as ex:
-                        logger.error(f"[Extraction Error] Lỗi bóc tách mạng: {ex}")
+                        logger.error(f"[Extraction Error] Lỗi bóc tách: {ex}")
                         return None
 
                 data = await loop.run_in_executor(WORKSTATION_POOL, extract_worker)
@@ -102,13 +101,33 @@ class SelfHealingEngine:
         return stream_url, title
 
     @staticmethod
+    async def background_prefetch(search: str, loop):
+        """Tiến trình ngầm đệm dữ liệu trước giúp các thao tác sau siêu mượt"""
+        try:
+            safe_search = SecuritySanitizer.sanitize_input(search)
+            if safe_search and safe_search not in URL_CACHE:
+                query = safe_search if safe_search.startswith("http") else f"scsearch:{safe_search}"
+                def extract_worker():
+                    try:
+                        data = ytdl.extract_info(query, download=False)
+                        if 'entries' in data and data['entries']:
+                            data = data['entries'][0]
+                        return data
+                    except:
+                        return None
+                data = await loop.run_in_executor(WORKSTATION_POOL, extract_worker)
+                if data and 'url' in data:
+                    URL_CACHE[safe_search] = (data['url'], data.get('title', safe_search))
+        except Exception:
+            pass
+
+    @staticmethod
     def purge_cache_key(search: str):
         if search in URL_CACHE:
             del URL_CACHE[search]
 
 
 class YTDLSource(discord.FFmpegOpusAudio):
-    """Sử dụng FFmpegOpusAudio tối ưu hóa băng thông mạng, chống giật lag tuyệt đối"""
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, **FFMPEG_OPTIONS)
         self.data = data
@@ -144,6 +163,11 @@ async def play_next(ctx):
             player.volume = volumes[guild_id]
             ctx.current_player = player
             
+            # Kích hoạt pre-fetch ngầm cho bài tiếp theo trong hàng đợi nếu có
+            if len(queues[guild_id]) > 0:
+                next_song = queues[guild_id][0]
+                bot.loop.create_task(SelfHealingEngine.background_prefetch(next_song.title, bot.loop))
+
             def after_playing(error):
                 if error:
                     logger.error(f"[Playback Error] Sự cố phần cứng/mạng: {error}")
@@ -225,7 +249,9 @@ class MusicControlView(discord.ui.View):
             
         if not any(song['title'] == current.title for song in favs):
             favs.append({'title': current.title, 'stream_url': current.stream_url})
-            await interaction.followup.send(f"✨ Đã lưu vào kho: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
+            # Tự động pre-fetch ngay khi lưu vào kho để lần sau bấm nút nạp siêu tốc không có độ trễ
+            bot.loop.create_task(SelfHealingEngine.background_prefetch(current.title, bot.loop))
+            await interaction.followup.send(f"✨ Đã lưu vào kho và đệm sẵn dữ liệu: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
             await interaction.followup.send("💠 Bài hát đã có trong bộ sưu tập.", ephemeral=True)
 
@@ -293,6 +319,7 @@ class CollectionView(discord.ui.View):
 
         if not any(song['title'] == current.title for song in favs):
             favs.append({'title': current.title, 'stream_url': current.stream_url})
+            bot.loop.create_task(SelfHealingEngine.background_prefetch(current.title, bot.loop))
             await interaction.response.send_message(f"✨ Đã lưu vào kho: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
             await interaction.response.send_message("💠 Đã có sẵn trong kho.", ephemeral=True)
@@ -357,6 +384,8 @@ async def play(interaction: discord.Interaction, search: str):
                 queues[guild_id].append(player)
                 embed = discord.Embed(title="💠 Đã thêm vào hàng đợi", description=f"**{player.title}** (`#{len(queues[guild_id])}/10`)", color=discord.Color.from_rgb(45, 10, 75))
                 await interaction.followup.send(embed=embed)
+                # Đệm trước bài tiếp theo trong hàng đợi
+                bot.loop.create_task(SelfHealingEngine.background_prefetch(player.title, bot.loop))
             else:
                 ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
                 embed = discord.Embed(title="✧ ── ✦ 𝕸𝖚𝖘𝖎𝖈 𝖑𝖆𝖓𝖌𝖓𝖌𝖔 ✦ ── ✧", description=f"🔮 **Đang Phát:** \n**{player.title}**", color=discord.Color.from_rgb(88, 24, 131))
@@ -395,6 +424,7 @@ async def myfavorite(interaction: discord.Interaction):
             break
             
         try:
+            # Lấy trực tiếp từ URL Cache đã được pre-fetch sẵn, tốc độ lập tức
             player = await YTDLSource.create_source(
                 item['title'], 
                 loop=bot.loop, 
@@ -408,7 +438,7 @@ async def myfavorite(interaction: discord.Interaction):
                 else:
                     queues[guild_id].append(player)
             added += 1
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.01)
         except Exception:
             continue
 
@@ -482,7 +512,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     if interaction.guild.voice_client and interaction.guild.voice_client.is_playing():
         interaction.guild.voice_client.pause()
         was_playing = True
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)
 
     try:
         cached_url = getattr(target_source, 'stream_url', None)
@@ -503,7 +533,7 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
         await interaction.edit_original_response(content=f"⚠️ Lỗi khi nhân bản: {e}")
     finally:
         if interaction.guild.voice_client and was_playing:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             interaction.guild.voice_client.resume()
 
 
@@ -581,11 +611,11 @@ async def delete_my_data(interaction: discord.Interaction):
 @bot.tree.command(name="help", description="🚀 Hướng dẫn hệ thống Workstation Bot (Production)")
 async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="✧ ── ✦ HỆ THỐNG WORKSTATION PRODUCTION BOT ✦ ── ✧",
+        title="✧ ── ✦ HỆ THỐNG WORKSTATION PRODUCTION BOT (PRE-FETCH CACHE) ✦ ── ✧",
         color=discord.Color.from_rgb(88, 24, 131)
     )
-    embed.add_field(name="🔮 `/play [tên/link]`", value="Phát nhạc tối ưu băng thông & bảo mật.", inline=False)
-    embed.add_field(name="🖤 `/myfavorite`", value="Tải siêu tốc từ kho cá nhân có cơ chế tự học.", inline=False)
+    embed.add_field(name="🔮 `/play [tên/link]`", value="Phát nhạc tối ưu băng thông & đệm tự động.", inline=False)
+    embed.add_field(name="🖤 `/myfavorite`", value="Nạp siêu tốc tức thì từ bộ nhớ đệm cá nhân.", inline=False)
     embed.add_field(name="📜 `/queue`", value="Xem danh sách chờ hiện tại.", inline=False)
     embed.add_field(name="🗑️ `/remove`", value="Xóa bài hát khỏi hàng đợi an toàn.", inline=False)
     embed.add_field(name="🧬 `/duplicate`", value="Nhân bản bài hát thông minh.", inline=False)
@@ -594,7 +624,6 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🔊 `/volume`", value="Điều chỉnh âm lượng hệ thống.", inline=False)
     embed.add_field(name="🌙 `/sleep`", value="Hẹn giờ ngắt bot tự động.", inline=False)
     embed.add_field(name="🛡️ `/delete-my-data`", value="Xóa dữ liệu cá nhân (GDPR/CCPA).", inline=False)
-    embed.set_footer(text="⚡ Production Secure Opus & Self-Healing Engine Active", icon_url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
