@@ -186,18 +186,21 @@ class YTDLSource(discord.FFmpegOpusAudio):
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
-    async with guild_locks[guild_id]:
-        if len(queues[guild_id]) > 0:
-            player = queues[guild_id].pop(0)
-            player.volume = volumes[guild_id]
-            
-            if not hasattr(bot, 'current_players'):
-                bot.current_players = {}
-            bot.current_players[guild_id] = player
-            
-            if len(queues[guild_id]) > 0:
-                next_song = queues[guild_id][0]
-                bot.loop.create_task(SelfHealingEngine.background_prefetch(next_song.title, bot.loop))
+    if guild_id in queues and len(queues[guild_id]) > 0:
+        next_query = queues[guild_id].pop(0)     
+        try:
+            stream_url, title = await SelfHealingEngine.resolve_stream(next_query, bot.loop)
+            source = await discord.FFmpegOpusAudio.from_probe(stream_url, **FFMPEG_OPTIONS)
+            def after_playing(error):
+                if error:
+                    logger.error(f"Lỗi phát nhạc trong FFmpeg: {error}")
+                asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+            ctx.voice_client.play(source, after=after_playing)
+        except Exception as e:
+            logger.error(f"Không thể phát bài '{next_query}': {e}")
+            asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+    else:
+        pass
 
             def after_playing(error):
                 if error:
