@@ -106,7 +106,7 @@ class SelfHealingEngine:
             if safe_search in URL_CACHE and not force_fresh:
                 stream_url, title = URL_CACHE[safe_search]
             else:
-                query = safe_search if safe_search.startswith("http") else f"scsearch:{safe_search}"
+                query = safe_search if safe_search.startswith("http") else f"ytsearch:{safe_search}"
                 
                 def extract_worker():
                     try:
@@ -137,7 +137,7 @@ class SelfHealingEngine:
         try:
             safe_search = SecuritySanitizer.sanitize_input(search)
             if safe_search and safe_search not in URL_CACHE:
-                query = safe_search if safe_search.startswith("http") else f"scsearch:{safe_search}"
+                query = safe_search if safe_search.startswith("http") else f"ytsearch:{safe_search}"
                 def extract_worker():
                     try:
                         data = ytdl.extract_info(query, download=False)
