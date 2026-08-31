@@ -20,7 +20,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # [VÁ LỖI 1] Tăng worker pool lên 16 để xử lý song song mượt mà khi add nhiều bài
-WORKSTATION_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="Production_Worker")
+WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
 
 # Bộ nhớ đệm thông minh & Pre-fetch Cache
 URL_CACHE = {}        
