@@ -96,7 +96,7 @@ class SelfHealingEngine:
         stream_url = cached_stream_url
         title = safe_query
 
-        # Ưu tiên lấy từ cache trước để chuyển bài mượt mà, không bị khựng
+        # Nếu đã có stream_url được truyền sẵn từ cache hoặc prefetch, trả về luôn để chuyển bài tức thì
         if stream_url:
             return stream_url, title
 
@@ -112,7 +112,7 @@ class SelfHealingEngine:
                         data = data['entries'][0]
                     return data
                 except Exception as ex:
-                    logger.error(f"[Extraction Error] Lỗi trích xuất: {ex}")
+                    logger.error(f"[Extraction Error] Lỗi trích xuất SoundCloud: {ex}")
                     return None
 
             try:
