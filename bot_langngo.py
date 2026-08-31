@@ -72,6 +72,11 @@ YTDL_OPTIONS = {
     'socket_timeout': 15,
     'cachedir': False,
     'ignoreerrors': True,
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'web']
+        }
+    },
 }
 
 FFMPEG_OPTIONS = {
