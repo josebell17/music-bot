@@ -482,7 +482,7 @@ async def remove(interaction: discord.Interaction, index: int, count: int = 1):
         await interaction.response.send_message(f"🗑️ Đã xóa {count} bài từ vị trí `{index}`: **{titles}**")
 
 
-@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài hát (Tự động chạy tiếp mượt mà)")
+@bot.tree.command(name="duplicate", description="🧬 Nhân bản bài hát và chờ nạp hoàn tất vào hàng đợi mới phát")
 @discord.app_commands.describe(index="Nhập 0 cho bài đang phát, hoặc số thứ tự", amount="Số bản sao")
 async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     guild_id = interaction.guild.id
@@ -510,36 +510,36 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
         target_source = q[index - 1]
         target_title = target_source.title
 
-    await interaction.response.send_message(f"🧬 Đang tiến hành nhân bản **{target_title}** thêm **{amount} lần**...", ephemeral=True)
+    await interaction.response.send_message(f"🧬 Đang tiến hành nạp ngầm **{amount} bài** nhân bản vào hàng đợi...", ephemeral=True)
 
-    was_playing = False
-    if interaction.guild.voice_client and interaction.guild.voice_client.is_playing():
-        interaction.guild.voice_client.pause()
-        was_playing = True
-        await asyncio.sleep(0.05)
+    # Khóa luồng guild lại để không cho play_next xen ngang trong lúc đang bóc tách dữ liệu
+    async with guild_locks[guild_id]:
+        try:
+            cached_url = getattr(target_source, 'stream_url', None)
+            new_players = []
+            
+            # Tiến hành tạo và đưa toàn bộ vào danh sách tạm thời trước
+            for _ in range(amount):
+                duplicated_player = await YTDLSource.create_source(
+                    target_title, 
+                    loop=bot.loop, 
+                    volume=current_vol, 
+                    cached_stream_url=cached_url
+                )
+                new_players.append(duplicated_player)
+                await asyncio.sleep(0.02)
 
-    try:
-        cached_url = getattr(target_source, 'stream_url', None)
-        for _ in range(amount):
-            duplicated_player = await YTDLSource.create_source(
-                target_title, 
-                loop=bot.loop, 
-                volume=current_vol, 
-                cached_stream_url=cached_url
-            )
-            if index == 0:
-                q.insert(0, duplicated_player)
-            else:
-                q.insert(index, duplicated_player)
-                
-        await interaction.edit_original_response(content=f"🧬 Đã nhân bản thành công bài **{target_title}** thêm **{amount} lần**!")
-    except Exception as e:
-        await interaction.edit_original_response(content=f"⚠️ Lỗi khi nhân bản: {e}")
-    finally:
-        if interaction.guild.voice_client and was_playing:
-            await asyncio.sleep(0.05)
-            interaction.guild.voice_client.resume()
-
+            # Sau khi hoàn tất 100% tất cả các bài mới chèn vào hàng đợi chính một lượt
+            for duplicated_player in new_players:
+                if len(q) < 10:
+                    if index == 0:
+                        q.insert(0, duplicated_player)
+                    else:
+                        q.insert(index, duplicated_player)
+                        
+            await interaction.edit_original_response(content=f"🧬 Đã hoàn tất! Đã thêm thành công **{len(new_players)} bài** nhân bản của **{target_title}** vào hàng đợi.")
+        except Exception as e:
+            await interaction.edit_original_response(content=f"⚠️ Lỗi khi nạp nhân bản: {e}")
 
 @bot.tree.command(name="move", description="🔄 Đổi vị trí bài hát trong hàng đợi")
 @discord.app_commands.describe(from_pos="Vị trí cũ", to_pos="Vị trí mới")
