@@ -7,7 +7,6 @@ import yt_dlp
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
-import asyncio
 
 # [NÂNG CẤP] Cấu hình ghi log chuẩn Production với mã hóa UTF-8 chống lỗi font Tiếng Việt trên console
 logging.basicConfig(
@@ -17,7 +16,6 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-# Đảm bảo StreamHandler hỗ trợ UTF-8 nếu môi trường hỗ trợ
 for handler in logging.root.handlers:
     if isinstance(handler, logging.StreamHandler):
         try:
@@ -27,15 +25,31 @@ for handler in logging.root.handlers:
 
 logger = logging.getLogger("WorkstationProductionBot")
 
-# [NÂNG CẤP] Thiết lập đầy đủ intents cần thiết cho bot âm nhạc chuyên nghiệp (bao gồm cả members và guild_messages)
+# [NÂNG CẤP] Thiết lập đầy đủ intents cần thiết cho bot âm nhạc chuyên nghiệp
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 intents.guilds = True
 intents.guild_messages = True
 
-# [VÁ LỖI 1] Tăng worker pool lên 16 để xử lý song song mượt mà khi add nhiều bài
+# Khởi tạo đối tượng Bot
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# [VÁ LỖI 1] Tăng worker pool xử lý song song
 WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
+
+# Định nghĩa LimitedCache trước khi khởi tạo các biến bộ nhớ đệm
+class LimitedCache(OrderedDict):
+    def __init__(self, maxsize=150, *args, **kwargs):
+        self.maxsize = maxsize
+        super().__init__(*args, **kwargs)
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        if len(self) > self.maxsize:
+            oldest = next(iter(self))
+            del self[oldest]
 
 # Bộ nhớ đệm thông minh & Pre-fetch Cache
 URL_CACHE = LimitedCache(maxsize=150)
@@ -46,7 +60,6 @@ sleep_tasks = {}
 user_collections = defaultdict(list)
 user_consent_ledger = set()
 guild_locks = defaultdict(asyncio.Lock)
-
 
 YTDL_OPTIONS = {
     'default_search': 'scsearch',
@@ -76,7 +89,6 @@ class SecuritySanitizer:
             return ""
         cleaned = "".join(ch for ch in text if ch.isalnum() or ch in " -_./:?&=+@")
         return cleaned.strip()[:200]
-
 
 class SelfHealingEngine:
     @staticmethod
@@ -145,7 +157,6 @@ class SelfHealingEngine:
         if search in URL_CACHE:
             del URL_CACHE[search]
 
-
 class YTDLSource(discord.FFmpegOpusAudio):
     def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, **FFMPEG_OPTIONS)
@@ -164,7 +175,7 @@ class YTDLSource(discord.FFmpegOpusAudio):
 
     @classmethod
     async def create_source(cls, search: str, *, loop=None, volume=0.5, cached_stream_url=None):
-        loop = loop or asyncio.get_running_loop() # [NÂNG CẤP] Thay thế get_event_loop() cũ bằng get_running_loop() chuẩn Python hiện đại
+        loop = loop or asyncio.get_running_loop()
         try:
             stream_url, title = await SelfHealingEngine.resolve_stream(search, loop, cached_stream_url)
             return cls(stream_url, data={'title': title, 'url': stream_url}, volume=volume)
@@ -179,7 +190,10 @@ async def play_next(ctx):
         if len(queues[guild_id]) > 0:
             player = queues[guild_id].pop(0)
             player.volume = volumes[guild_id]
-            ctx.current_player = player
+            
+            if not hasattr(bot, 'current_players'):
+                bot.current_players = {}
+            bot.current_players[guild_id] = player
             
             if len(queues[guild_id]) > 0:
                 next_song = queues[guild_id][0]
@@ -188,7 +202,6 @@ async def play_next(ctx):
             def after_playing(error):
                 if error:
                     logger.error(f"[Playback Error] Sự cố phần cứng/mạng: {error}")
-                # Đảm bảo an toàn luồng khi gọi tiếp bài sau
                 asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
 
             if ctx.voice_client and ctx.voice_client.is_connected():
@@ -207,7 +220,8 @@ async def play_next(ctx):
                     logger.error(f"[Play Exception] Không thể phát bài hát: {ex}")
                     asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
         else:
-            ctx.current_player = None
+            if hasattr(bot, 'current_players'):
+                bot.current_players.pop(guild_id, None)
             if ctx.voice_client and ctx.voice_client.is_connected():
                 await asyncio.sleep(60)
                 if ctx.voice_client and not ctx.voice_client.is_playing() and len(queues[guild_id]) == 0:
@@ -215,7 +229,6 @@ async def play_next(ctx):
                     if guild_id in sleep_tasks:
                         sleep_tasks[guild_id].cancel()
                         sleep_tasks.pop(guild_id, None)
-
 
 class MusicControlView(discord.ui.View):
     def __init__(self, ctx):
@@ -269,9 +282,8 @@ class MusicControlView(discord.ui.View):
         user_id = interaction.user.id
         guild_id = interaction.guild.id
         
-        # [NÂNG CẤP] Truy xuất current_player an toàn theo từng guild thay vì dựa vào ctx toàn cục
         current = getattr(interaction.client, 'current_players', {}).get(guild_id, None)
-        if not current and hasattr(interaction.client, 'get_guild'):
+        if not current:
             vc = interaction.guild.voice_client
             current = getattr(vc, 'current_source', None)
 
@@ -283,7 +295,7 @@ class MusicControlView(discord.ui.View):
             return await interaction.followup.send("⚠️ Kho lưu trữ cá nhân đã đạt giới hạn tối đa 10 bài!", ephemeral=True)
             
         if not any(song['title'] == current.title for song in favs):
-            favs.append({'title': current.title, 'stream_url': current.stream_url})
+            favs.append({'title': current.title, 'stream_url': getattr(current, 'stream_url', '')})
             interaction.client.loop.create_task(SelfHealingEngine.background_prefetch(current.title, interaction.client.loop))
             await interaction.followup.send(f"✨ Đã lưu vào kho và đệm sẵn dữ liệu: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
@@ -296,11 +308,12 @@ class MusicControlView(discord.ui.View):
 
         async with guild_locks[interaction.guild.id]:
             queues[interaction.guild.id].clear()
+            if hasattr(bot, 'current_players'):
+                bot.current_players.pop(interaction.guild.id, None)
             vc = interaction.guild.voice_client
             if vc:
                 await vc.disconnect()
                 await interaction.followup.send("🌌 Đã ngắt kết nối hệ thống.", ephemeral=True)
-
 
 class RemoveCollectionModal(discord.ui.Modal, title="🗑️ Xóa Bài Hát Khỏi Bộ Sưu Tập"):
     index_str = discord.ui.TextInput(label="Số thứ tự bài cần xóa", placeholder="Nhập số (ví dụ: 1)", required=True)
@@ -316,7 +329,6 @@ class RemoveCollectionModal(discord.ui.Modal, title="🗑️ Xóa Bài Hát Kh�
                 await interaction.response.send_message("⚠️ Số thứ tự không hợp lệ.", ephemeral=True)
         except ValueError:
             await interaction.response.send_message("⚠️ Vui lòng chỉ nhập số.", ephemeral=True)
-
 
 class ReorderCollectionModal(discord.ui.Modal, title="🔄 Sắp Xếp Lại Bộ Sưu Tập"):
     from_pos = discord.ui.TextInput(label="Vị trí cũ", placeholder="Ví dụ: 3", required=True)
@@ -335,7 +347,6 @@ class ReorderCollectionModal(discord.ui.Modal, title="🔄 Sắp Xếp Lại B�
         except ValueError:
             await interaction.response.send_message("⚠️ Vui lòng chỉ nhập số.", ephemeral=True)
 
-
 class CollectionView(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=60)
@@ -343,8 +354,12 @@ class CollectionView(discord.ui.View):
 
     @discord.ui.button(style=discord.ButtonStyle.success, emoji="📥", label="Lưu bài đang phát")
     async def save_current(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ctx = await commands.Context.from_interaction(interaction)
-        current = getattr(ctx, 'current_player', None)
+        guild_id = interaction.guild.id
+        current = getattr(bot, 'current_players', {}).get(guild_id, None)
+        if not current:
+            vc = interaction.guild.voice_client
+            current = getattr(vc, 'current_source', None)
+
         if not current:
             return await interaction.response.send_message("⚠️ Không có bài hát đang phát!", ephemeral=True)
         
@@ -353,7 +368,7 @@ class CollectionView(discord.ui.View):
             return await interaction.response.send_message("⚠️ Kho lưu trữ cá nhân đã đạt giới hạn tối đa 10 bài!", ephemeral=True)
 
         if not any(song['title'] == current.title for song in favs):
-            favs.append({'title': current.title, 'stream_url': current.stream_url})
+            favs.append({'title': current.title, 'stream_url': getattr(current, 'stream_url', '')})
             bot.loop.create_task(SelfHealingEngine.background_prefetch(current.title, bot.loop))
             await interaction.response.send_message(f"✨ Đã lưu vào kho: **{current.title}** (`{len(favs)}/10`)", ephemeral=True)
         else:
@@ -376,25 +391,17 @@ class CollectionView(discord.ui.View):
     async def reorder_song(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ReorderCollectionModal())
 
-
-
-
 @bot.event
 async def on_ready():
     try:
-        # [NÂNG CẤP] In chi tiết thông tin hệ thống và tối ưu đồng bộ lệnh tree
         synced = await bot.tree.sync()
         logger.info(f"✨ Hệ thống Production Bot đã trực tuyến: {bot.user} (ID: {bot.user.id})")
         logger.info(f"🚀 Đã đồng bộ thành công {len(synced)} lệnh Slash (/) lên Discord.")
         
-        # [NÂNG CẤP] Thiết lập trạng thái hoạt động (Presence) chuyên nghiệp cho bot
         activity = discord.Activity(type=discord.ActivityType.listening, name="/help | 24/7 Music Production")
         await bot.change_presence(status=discord.Status.online, activity=activity)
-        
     except Exception as e:
         logger.error(f"⚠️ Lỗi đồng bộ slash command: {e}")
-
-
 
 @bot.tree.command(name="play", description="🔮 Phát nhạc tối ưu hóa mạng & bảo mật chuẩn doanh nghiệp")
 @discord.app_commands.describe(search="Tên bài hát hoặc liên kết")
@@ -412,7 +419,6 @@ async def play(interaction: discord.Interaction, search: str):
 
     await interaction.response.defer()
     
-    # [NÂNG CẤP] Tự động kết nối kênh thoại an toàn mà không cần lệ thuộc vào commands.Context cũ
     vc = interaction.guild.voice_client
     if not vc:
         try:
@@ -424,7 +430,6 @@ async def play(interaction: discord.Interaction, search: str):
         current_vol = volumes[guild_id]
         player = await YTDLSource.create_source(safe_query, loop=bot.loop, volume=current_vol)
         
-        # [NÂNG CẤP] Lưu player hiện tại vào bộ nhớ bot.current_players theo guild_id chuẩn xác
         if not hasattr(bot, 'current_players'):
             bot.current_players = {}
         bot.current_players[guild_id] = player
@@ -436,7 +441,6 @@ async def play(interaction: discord.Interaction, search: str):
                 await interaction.followup.send(embed=embed)
                 bot.loop.create_task(SelfHealingEngine.background_prefetch(player.title, bot.loop))
             else:
-                # [NÂNG CẤP] Định nghĩa callback play_next tương thích hoàn hảo với guild_id
                 def after_playing(error):
                     if error:
                         logger.error(f"[Player Error] Lỗi phát nhạc tại guild {guild_id}: {error}")
@@ -447,9 +451,6 @@ async def play(interaction: discord.Interaction, search: str):
                 await interaction.followup.send(embed=embed, view=MusicControlView(interaction.guild))
     except Exception as e:
         await interaction.followup.send(f"⚠️ Lỗi xử lý dữ liệu: {e}")
-
-
-
 
 @bot.tree.command(name="myfavorite", description="🖤 Nạp siêu tốc từ bộ nhớ đệm kho cá nhân với cơ chế dự phòng")
 async def myfavorite(interaction: discord.Interaction):
@@ -467,7 +468,6 @@ async def myfavorite(interaction: discord.Interaction):
 
     await interaction.response.defer()
     
-    # [NÂNG CẤP] Xử lý kết nối thoại trực tiếp qua interaction, loại bỏ hoàn toàn commands.Context
     vc = interaction.guild.voice_client
     if not vc:
         try:
@@ -503,7 +503,6 @@ async def myfavorite(interaction: discord.Interaction):
             continue
 
     if first_player:
-        # [NÂNG CẤP] Chuẩn hóa callback after_playing tương thích hệ thống quản lý đa máy chủ
         def after_playing(error):
             if error:
                 logger.error(f"[Player Error] Lỗi phát nhạc tại guild {guild_id}: {error}")
@@ -520,8 +519,6 @@ async def myfavorite(interaction: discord.Interaction):
 @bot.tree.command(name="queue", description="📜 Xem danh sách chờ (Tối đa 10 bài)")
 async def queue_cmd(interaction: discord.Interaction):
     guild_id = interaction.guild.id
-    
-    # [NÂNG CẤP] Hiển thị chi tiết cả bài đang phát kèm danh sách chờ để người dùng dễ theo dõi
     vc = interaction.guild.voice_client
     current = getattr(bot, 'current_players', {}).get(guild_id, None)
     if not current and vc:
@@ -550,13 +547,10 @@ async def queue_cmd(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-
 @bot.tree.command(name="remove", description="🗑️ Xóa bài hát khỏi hàng đợi")
 @discord.app_commands.describe(index="Vị trí bài trong hàng đợi cần xóa", count="Số lượng bài muốn xóa liên tiếp")
 async def remove(interaction: discord.Interaction, index: int, count: int = 1):
     guild_id = interaction.guild.id
-    
-    # [NÂNG CẤP] Sử dụng defer(ephemeral=True) để tránh timeout nếu xử lý danh sách lớn hoặc khóa guild bận
     await interaction.response.defer(ephemeral=True)
 
     async with guild_locks[guild_id]:
@@ -567,7 +561,6 @@ async def remove(interaction: discord.Interaction, index: int, count: int = 1):
         count = max(1, min(count, len(q) - index + 1))
         removed_items = [q.pop(index - 1) for _ in range(count)]
         
-        # [NÂNG CẤP] Cắt ngắn tiêu đề nếu quá dài để tránh lỗi giới hạn ký tự khung chat Discord
         titles = ", ".join([f"**{item.title}**" for item in removed_items])
         if len(titles) > 1500:
             titles = titles[:1500] + "..."
@@ -590,11 +583,9 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
     target_source = None
     target_title = "Bài hát"
 
-    # [NÂNG CẤP] An toàn hóa việc trích xuất nguồn bài hát đang phát hoặc trong hàng đợi
     vc = interaction.guild.voice_client
     if index == 0:
         if vc and vc.is_playing():
-            # Ưu tiên lấy từ biến quản lý hiện tại của bot theo guild_id
             target_source = getattr(bot, 'current_players', {}).get(guild_id, None)
             if not target_source and hasattr(vc, 'source'):
                 target_source = vc.source
@@ -613,13 +604,11 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
 
     await interaction.response.send_message(f"🧬 Đang tiến hành nạp ngầm **{amount} bài** nhân bản vào hàng đợi...", ephemeral=True)
 
-    # Khóa luồng guild lại để bảo vệ toàn vẹn dữ liệu hàng đợi
     async with guild_locks[guild_id]:
         try:
             cached_url = getattr(target_source, 'stream_url', None)
             new_players = []
             
-            # Tiến hành tạo và đưa toàn bộ vào danh sách tạm thời trước
             for _ in range(amount):
                 duplicated_player = await YTDLSource.create_source(
                     target_title, 
@@ -630,13 +619,11 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
                 new_players.append(duplicated_player)
                 await asyncio.sleep(0.02)
 
-            # [NÂNG CẤP] Xử lý thứ tự chèn linh hoạt: Nếu index=0 (bài đang phát), chèn lần lượt lên đầu hàng đợi để phát sát nhau; nếu chọn bài trong queue, chèn đúng vị trí chỉ định
             for i, duplicated_player in enumerate(new_players):
                 if len(q) < 10:
                     if index == 0:
                         q.insert(i, duplicated_player)
                     else:
-                        # Dịch chuyển vị trí index phù hợp khi chèn nhiều bài liên tiếp
                         q.insert(index - 1 + i, duplicated_player)
                         
             await interaction.edit_original_response(content=f"🧬 Đã hoàn tất! Đã thêm thành công **{len(new_players)} bài** nhân bản của **{target_title}** vào hàng đợi.")
@@ -647,8 +634,6 @@ async def duplicate(interaction: discord.Interaction, index: int, amount: int):
 @discord.app_commands.describe(from_pos="Vị trí cũ", to_pos="Vị trí mới")
 async def move(interaction: discord.Interaction, from_pos: int, to_pos: int):
     guild_id = interaction.guild.id
-    
-    # [NÂNG CẤP] Sử dụng khóa luồng guild (guild_locks) để tránh xung đột dữ liệu khi đổi vị trí đồng thời
     async with guild_locks[guild_id]:
         q = queues[guild_id]
         if not q or not (1 <= from_pos <= len(q)) or not (1 <= to_pos <= len(q)):
@@ -658,14 +643,11 @@ async def move(interaction: discord.Interaction, from_pos: int, to_pos: int):
         q.insert(to_pos - 1, song)
         await interaction.response.send_message(f"🔄 Đã chuyển **{getattr(song, 'title', 'Bài hát')}** từ vị trí `{from_pos}` sang `{to_pos}`.", ephemeral=True)
 
-
 @bot.tree.command(name="collection", description="💼 Quản lý kho lưu trữ cá nhân")
 async def collection(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(title="🌌 Kho Lưu Trữ Cá Nhân", description="Sử dụng bảng điều khiển bảo mật bên dưới:", color=discord.Color.from_rgb(88, 24, 131))
-    # [NÂNG CẤP] Truyền trực tiếp interaction.user.id để View nhận diện và kiểm soát quyền sở hữu
     await interaction.followup.send(embed=embed, view=CollectionView(interaction.user.id), ephemeral=True)
-
 
 @bot.tree.command(name="volume", description="🔊 Chỉnh âm lượng (1 - 100)")
 @discord.app_commands.describe(level="Mức âm lượng")
@@ -676,7 +658,6 @@ async def volume(interaction: discord.Interaction, level: int):
     guild_id = interaction.guild.id
     volumes[guild_id] = level / 100.0
     
-    # [NÂNG CẤP] Kiểm tra an toàn bộ nguồn phát âm thanh hiện tại trước khi gán mức âm lượng mới
     vc = interaction.guild.voice_client
     if vc and vc.source:
         try:
@@ -685,7 +666,6 @@ async def volume(interaction: discord.Interaction, level: int):
             pass
 
     await interaction.response.send_message(f"🔊 Đã chỉnh âm lượng hệ thống: **{level}%**", ephemeral=True)
-
 
 @bot.tree.command(name="sleep", description="🌙 Hẹn giờ tự ngắt bot")
 @discord.app_commands.describe(minutes="Số phút (1 - 180)")
@@ -704,7 +684,6 @@ async def sleep(interaction: discord.Interaction, minutes: int):
                 vc = interaction.guild.voice_client
                 if vc:
                     queues[guild_id].clear()
-                    # [NÂNG CẤP] Xóa cache player hiện tại khi bot tự động ngắt kết nối
                     if hasattr(bot, 'current_players') and guild_id in bot.current_players:
                         bot.current_players.pop(guild_id, None)
                     await vc.disconnect()
@@ -721,19 +700,16 @@ async def sleep(interaction: discord.Interaction, minutes: int):
     sleep_tasks[guild_id] = bot.loop.create_task(timer())
     await interaction.response.send_message(f"⏰ Đã đặt hẹn giờ ngắt kết nối sau **{minutes} phút**.", ephemeral=True)
 
-
 @bot.tree.command(name="delete-my-data", description="🛡️ Xóa toàn bộ dữ liệu cá nhân (Tuân thủ GDPR/CCPA)")
 async def delete_my_data(interaction: discord.Interaction):
     user_id = interaction.user.id
     cleared = False
     
-    # [NÂNG CẤP] Sử dụng khối bảo vệ an toàn khi xóa dữ liệu collections và consent ledger
     try:
         if user_id in user_collections:
             del user_collections[user_id]
             cleared = True
         
-        # Kiểm tra biến ledger tồn tại trước khi thao tác xóa
         global user_consent_ledger
         if 'user_consent_ledger' in globals() and user_id in user_consent_ledger:
             user_consent_ledger.remove(user_id)
@@ -745,7 +721,6 @@ async def delete_my_data(interaction: discord.Interaction):
         await interaction.response.send_message("🛡️ Toàn bộ dữ liệu cá nhân của bạn đã được xóa hoàn toàn khỏi hệ thống lưu trữ.", ephemeral=True)
     else:
         await interaction.response.send_message("📭 Không tìm thấy dữ liệu cá nhân nào được lưu trữ.", ephemeral=True)
-
 
 @bot.tree.command(name="help", description="🚀 Hướng dẫn hệ thống Workstation Bot (Production)")
 async def help_cmd(interaction: discord.Interaction):
@@ -765,7 +740,10 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="🛡️ `/delete-my-data`", value="Xóa dữ liệu cá nhân (GDPR/CCPA).", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-
-TOKEN = os.getenv("DISCORD_TOKEN")
-if TOKEN:
-    bot.run(TOKEN)
+# Khởi chạy an toàn với kiểm tra Token chuẩn Enterprise
+if __name__ == "__main__":
+    TOKEN = os.getenv("DISCORD_TOKEN")
+    if not TOKEN:
+        logger.critical("🚨 LỖI NGHIÊM TRỌNG: Không tìm thấy biến môi trường DISCORD_TOKEN!")
+    else:
+        bot.run(TOKEN)
