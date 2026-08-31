@@ -35,6 +35,29 @@ intents.guild_messages = True
 # Khởi tạo đối tượng Bot
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# [QUAN TRỌNG] Tự động tạo file cookies.txt từ biến môi trường trên Render
+cookies_content = os.getenv("YT_COOKIES")
+if cookies_content:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(cookies_content)
+
+# Cấu hình ghi log chuẩn Production
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [Workstation-Core] %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+for handler in logging.root.handlers:
+    if isinstance(handler, logging.StreamHandler):
+        try:
+            handler.stream.reconfigure(encoding='utf-8')
+        except AttributeError:
+            pass
+
+logger = logging.getLogger("WorkstationProductionBot")
+
 # [VÁ LỖI 1] Tăng worker pool xử lý song song
 WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
 
@@ -73,6 +96,9 @@ YTDL_OPTIONS = {
     'socket_timeout': 15,
     'cachedir': False,
     'ignoreerrors': True,
+    'cookiefile': 'cookies.txt',
+    'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+}
 }
 
 FFMPEG_OPTIONS = {
