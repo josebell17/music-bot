@@ -62,7 +62,7 @@ user_consent_ledger = set()
 guild_locks = defaultdict(asyncio.Lock)
 
 YTDL_OPTIONS = {
-    'default_search': 'scsearch',
+    'default_search': 'ytsearch',
     'format': 'bestaudio/best',
     'extractaudio': True,
     'audioformat': 'mp3',
