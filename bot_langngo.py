@@ -129,7 +129,7 @@ class SelfHealingEngine:
                     title = data.get('title', safe_query)
                     URL_CACHE[safe_query] = (stream_url, title)
                 else:
-                    FAILED_TRACKS_LEDGER[safe_query] += 1
+                    FAILED_TRACKS_LEDGER[safe_query] = FAILED_TRACKS_LEDGER.get(safe_query, 0) + 1
                     raise Exception("Không thể tìm thấy bài hát trên SoundCloud.")
 
         return stream_url, title
