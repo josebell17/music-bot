@@ -72,11 +72,6 @@ YTDL_OPTIONS = {
     'socket_timeout': 15,
     'cachedir': False,
     'ignoreerrors': True,
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['android', 'web']
-        }
-    },
 }
 
 FFMPEG_OPTIONS = {
@@ -96,27 +91,29 @@ class SecuritySanitizer:
 
 class SelfHealingEngine:
     @staticmethod
-    async def resolve_stream(url: str, loop, cached_stream_url=None):
-        safe_url = SecuritySanitizer.sanitize_input(url)
+    async def resolve_stream(query: str, loop, cached_stream_url=None):
+        safe_query = SecuritySanitizer.sanitize_input(query)
         stream_url = cached_stream_url
-        title = safe_url
+        title = safe_query
         force_fresh = False
 
-        if safe_url in FAILED_TRACKS_LEDGER and FAILED_TRACKS_LEDGER[safe_url] > 2:
+        if safe_query in FAILED_TRACKS_LEDGER and FAILED_TRACKS_LEDGER[safe_query] > 2:
             force_fresh = True
 
         if not stream_url or force_fresh:
-            if safe_url in URL_CACHE and not force_fresh:
-                stream_url, title = URL_CACHE[safe_url]
+            if safe_query in URL_CACHE and not force_fresh:
+                stream_url, title = URL_CACHE[safe_query]
             else:
+                search_query = safe_query if safe_query.startswith("http") else f"scsearch:{safe_query}"
+                
                 def extract_worker():
                     try:
-                        data = ytdl.extract_info(safe_url, download=False)
+                        data = ytdl.extract_info(search_query, download=False)
                         if 'entries' in data and data['entries']:
                             data = data['entries'][0]
                         return data
                     except Exception as ex:
-                        logger.error(f"[Extraction Error] Lỗi bóc tách URL: {ex}")
+                        logger.error(f"[Extraction Error] Lỗi SoundCloud: {ex}")
                         return None
 
                 try:
@@ -129,22 +126,23 @@ class SelfHealingEngine:
 
                 if data and 'url' in data:
                     stream_url = data['url']
-                    title = data.get('title', safe_url)
-                    URL_CACHE[safe_url] = (stream_url, title)
+                    title = data.get('title', safe_query)
+                    URL_CACHE[safe_query] = (stream_url, title)
                 else:
-                    FAILED_TRACKS_LEDGER[safe_url] += 1
-                    raise Exception("Không thể trích xuất luồng từ URL. Hãy đảm bảo đó là link YouTube hợp lệ.")
+                    FAILED_TRACKS_LEDGER[safe_query] += 1
+                    raise Exception("Không thể tìm thấy bài hát trên SoundCloud.")
 
         return stream_url, title
 
     @staticmethod
-    async def background_prefetch(url: str, loop):
+    async def background_prefetch(query: str, loop):
         try:
-            safe_url = SecuritySanitizer.sanitize_input(url)
-            if safe_url and safe_url not in URL_CACHE:
+            safe_query = SecuritySanitizer.sanitize_input(query)
+            if safe_query and safe_query not in URL_CACHE:
+                search_query = safe_query if safe_query.startswith("http") else f"scsearch:{safe_query}"
                 def extract_worker():
                     try:
-                        data = ytdl.extract_info(safe_url, download=False)
+                        data = ytdl.extract_info(search_query, download=False)
                         if 'entries' in data and data['entries']:
                             data = data['entries'][0]
                         return data
@@ -152,7 +150,7 @@ class SelfHealingEngine:
                         return None
                 data = await loop.run_in_executor(WORKSTATION_POOL, extract_worker)
                 if data and 'url' in data:
-                    URL_CACHE[safe_url] = (data['url'], data.get('title', safe_url))
+                    URL_CACHE[safe_query] = (data['url'], data.get('title', safe_query))
         except Exception:
             pass
 
@@ -407,17 +405,17 @@ async def on_ready():
     except Exception as e:
         logger.error(f"⚠️ Lỗi đồng bộ slash command: {e}")
 
-@bot.tree.command(name="play", description="🔮 Phát nhạc trực tiếp bằng đường dẫn URL YouTube trên Render")
-@discord.app_commands.describe(url="Dán đường dẫn URL YouTube trực tiếp")
-async def play(interaction: discord.Interaction, url: str):
+@bot.tree.command(name="play", description="🔮 Phát nhạc mượt mà từ SoundCloud")
+@discord.app_commands.describe(query="Tên bài hát hoặc link SoundCloud")
+async def play(interaction: discord.Interaction, query: str):
     await interaction.response.defer(ephemeral=False)
 
     if not interaction.user.voice:
         return await interaction.followup.send("🥀 Vui lòng vào kênh thoại trước.", ephemeral=True)
 
-    safe_url = SecuritySanitizer.sanitize_input(url)
-    if not safe_url.startswith("http"):
-        return await interaction.followup.send("⚠️ Vui lòng dán đường dẫn URL hợp lệ (bắt đầu bằng http/https).", ephemeral=True)
+    safe_query = SecuritySanitizer.sanitize_input(query)
+    if not safe_query:
+        return await interaction.followup.send("⚠️ Từ khóa không hợp lệ.", ephemeral=True)
 
     guild_id = interaction.guild.id
     if len(queues[guild_id]) >= 10:
@@ -432,7 +430,7 @@ async def play(interaction: discord.Interaction, url: str):
 
     try:
         current_vol = volumes[guild_id]
-        player = await YTDLSource.create_source(safe_url, loop=bot.loop, volume=current_vol)
+        player = await YTDLSource.create_source(safe_query, loop=bot.loop, volume=current_vol)
         
         if not hasattr(bot, 'current_players'):
             bot.current_players = {}
@@ -443,7 +441,7 @@ async def play(interaction: discord.Interaction, url: str):
                 queues[guild_id].append(player)
                 embed = discord.Embed(title="💠 Đã thêm vào hàng đợi", description=f"**{player.title}** (`#{len(queues[guild_id])}/10`)", color=discord.Color.from_rgb(45, 10, 75))
                 await interaction.followup.send(embed=embed)
-                bot.loop.create_task(SelfHealingEngine.background_prefetch(safe_url, bot.loop))
+                bot.loop.create_task(SelfHealingEngine.background_prefetch(safe_query, bot.loop))
             else:
                 def after_playing(error):
                     if error:
@@ -454,7 +452,7 @@ async def play(interaction: discord.Interaction, url: str):
                 embed = discord.Embed(title="✧ ── ✦ 𝕸𝖚𝖘𝖎𝖈 𝖑𝖆𝖓𝖌𝖓𝖌𝖔 ✦ ── ✧", description=f"🔮 **Đang Phát:** \n**{player.title}**", color=discord.Color.from_rgb(88, 24, 131))
                 await interaction.followup.send(embed=embed, view=MusicControlView(interaction.guild))
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Lỗi xử lý dữ liệu từ URL: {e}")
+        await interaction.followup.send(f"⚠️ Lỗi xử lý dữ liệu: {e}")
 
 @bot.tree.command(name="myfavorite", description="🖤 Nạp siêu tốc từ bộ nhớ đệm kho cá nhân với cơ chế dự phòng")
 async def myfavorite(interaction: discord.Interaction):
