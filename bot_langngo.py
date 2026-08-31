@@ -36,7 +36,7 @@ intents.guild_messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # [VÁ LỖI 1] Tăng worker pool xử lý song song
-WORKSTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="Production_Worker")
+WORKSTATION_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="Production_Worker")
 
 # Định nghĩa LimitedCache trước khi khởi tạo các biến bộ nhớ đệm
 class LimitedCache(OrderedDict):
